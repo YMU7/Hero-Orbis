@@ -1,0 +1,17 @@
+node_modules
+.next
+.env
+.env*
+!.env.example
+.env.local
+*.log
+.DS_Store
+*.tsbuildinfo
+
+# The repo root .gitignore ignores `next-env.d.ts` repo-wide (with a
+# carve-out for templates/*/next-env.d.ts), so this template's tracked
+# next-env.d.ts stays tracked. `.next` (the Next build cache) stays
+# ignored here, matching every other template in the repo.
+
+# next dev --experimental-https self-signed certs
+certificates
