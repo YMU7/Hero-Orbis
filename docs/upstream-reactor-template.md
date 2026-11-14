@@ -1,3 +1,5 @@
+> **Upstream document.** This is the original README of the `visko-orbis-stable` template from [reactor-team/create-reactor-app](https://github.com/reactor-team/create-reactor-app) (Apache-2.0), kept for reference. It describes the reference desktop app served at `/`. For this project, see the [main README](../README.md).
+
 # Visko Orbis Stable
 
 Clone this folder and read top-to-bottom: you should understand the model's entire API surface in under five minutes — and have a working frontend to build from.
