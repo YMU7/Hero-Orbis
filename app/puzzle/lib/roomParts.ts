@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { BOARD_H, BOARD_W, PAINTING_SATURATION, ROOM } from "../puzzleConfig";
+import { BOARD_H, BOARD_W, PAINTING_SATURATION, PUZZLE_ACTIONS, PUZZLE_AUDIO_PROMPTS, ROOM } from "../puzzleConfig";
 import { Gramophone } from "./gramophone";
 import { DrawingBoard } from "./drawingBoard";
 import type { SceneDoc, SceneObject } from "../../lib/sceneData/types";
@@ -564,7 +564,42 @@ export const DEFAULT_PUZZLE_LAYOUT: ReadonlyArray<SceneObject> = [
  *  default room; each singleton exists exactly once (missing → default,
  *  extra copies dropped); unknown builtins are dropped. */
 export function normalizePuzzleScene(doc: SceneDoc): SceneObject[] {
-  if (doc.objects.length === 0) return DEFAULT_PUZZLE_LAYOUT.map((o) => ({ ...o }));
+  if (doc.objects.length === 0) return withDefaultPuzzles(DEFAULT_PUZZLE_LAYOUT.map((o) => ({ ...o })));
+  return withDefaultPuzzles(normalizePieces(doc));
+}
+
+/** Default puzzle components (the original two puzzles), added once: a layout
+ *  whose painting has no `painting` component predates components. After
+ *  that the editor owns them (a removed puzzle stays removed). */
+export function withDefaultPuzzles(list: SceneObject[]): SceneObject[] {
+  const painting = list.find((o) => o.asset === BUILTIN + "painting");
+  if (!painting || painting.painting) return list;
+  return list.map((o) => {
+    const k = builtinKind(o.asset);
+    if (k === "painting") return { ...o, painting: { startInstruction: PUZZLE_ACTIONS.urging, audioPrompt: PUZZLE_AUDIO_PROMPTS.urging } };
+    if (k === "gramophone" && !o.puzzle)
+      return {
+        ...o,
+        puzzle: { id: "sound-on", trigger: "needle", requires: null, instruction: "", audioPrompt: "", sound: "", hint: "The princess is calling out… but you hear nothing." },
+      };
+    if (k === "easel" && !o.puzzle)
+      return {
+        ...o,
+        puzzle: {
+          id: "sword",
+          trigger: "draw-sword",
+          requires: "sound-on",
+          instruction: PUZZLE_ACTIONS.happy,
+          audioPrompt: PUZZLE_AUDIO_PROMPTS.happy,
+          sound: "puzzle-solved",
+          hint: "“Draw your sword!”",
+        },
+      };
+    return o;
+  });
+}
+
+function normalizePieces(doc: SceneDoc): SceneObject[] {
   const seen = new Set<string>();
   const out: SceneObject[] = [];
   for (const o of doc.objects) {

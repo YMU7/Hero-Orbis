@@ -8,6 +8,8 @@
 //
 // Stored on disk at data/scenes/<sceneId>.json and served by /api/scene.
 
+import { parsePainting, parsePuzzle, type PaintingComponent, type PuzzleComponent } from "./components";
+
 export const SCENE_VERSION = 1;
 export const DEFAULT_SCENE_ID = "mvp";
 
@@ -26,6 +28,9 @@ export type SceneObject = {
   /** Euler XYZ in DEGREES (readable when editing the JSON by hand). */
   rotation: Vec3;
   scale: Vec3;
+  /** Optional components (Scene Editor "+ Puzzle"; see ./components.ts). */
+  puzzle?: PuzzleComponent;
+  painting?: PaintingComponent;
 };
 
 export type SceneDoc = {
@@ -55,6 +60,8 @@ export function parseScene(raw: unknown): SceneDoc {
     if (typeof x.asset !== "string" || !(x.asset.startsWith("/") || /^builtin:[a-z0-9-]+$/.test(x.asset)))
       throw new Error(`objects[${i}].asset must be a site-relative URL or builtin:<kind>`);
     if (!isVec3(x.position) || !isVec3(x.rotation) || !isVec3(x.scale)) throw new Error(`objects[${i}] transform must be three numbers each`);
+    const puzzle = parsePuzzle(x.puzzle, `objects[${i}]`);
+    const painting = parsePainting(x.painting);
     return {
       id: x.id,
       name: typeof x.name === "string" && x.name ? x.name.slice(0, 120) : x.id,
@@ -62,6 +69,8 @@ export function parseScene(raw: unknown): SceneDoc {
       position: x.position,
       rotation: x.rotation,
       scale: x.scale,
+      ...(puzzle ? { puzzle } : {}),
+      ...(painting ? { painting } : {}),
     };
   });
   return { version: SCENE_VERSION, savedAt: typeof r.savedAt === "string" ? r.savedAt : undefined, objects };

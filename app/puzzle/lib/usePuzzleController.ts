@@ -9,19 +9,27 @@ import {
 import type { useOrbisSession } from "../../mvp/lib/orbisSession";
 import type { MockSource } from "../../mvp/lib/mockSource";
 import { debug, type SourceMode } from "../../mvp/lib/debugState";
-import { PUZZLE_AUDIO_PROMPTS, PUZZLE_INITIAL_IMAGE, PUZZLE_RESOLUTION, PUZZLE_SEED, type PuzzleBeat } from "../puzzleConfig";
+import { PUZZLE_ACTIONS, PUZZLE_AUDIO_PROMPTS, PUZZLE_INITIAL_IMAGE, PUZZLE_RESOLUTION, PUZZLE_SEED } from "../puzzleConfig";
 import { composePrompt } from "./style";
-import { puzzleStore } from "./puzzleState";
+import { puzzleStore, type PuzzleStateData } from "./puzzleState";
+import { allSolved, blocker, isUnlocked } from "./puzzleChain";
 
 // Orbis lifecycle for "the princess in the painting" (same patterns as
 // app/rooms/lib/useRoomController.ts):
 //
 //   run   : [reset if this session already generated] → set_seed(42)
-//           → set_resolution(1080p) once per session → set_audio_prompt(urging)
-//           → set_prompt(urging) → start
-//   solve : exactly ONE set_prompt(happy) per run (deduped by run token),
-//           only once the gramophone plays (unless that gate is turned off)
-//   reset : new run token → run again; the room is reset too
+//           → set_resolution(1080p) once per session → set_audio_prompt(current)
+//           → set_prompt(current) → start
+//   solve : a puzzle component (Scene Editor "+ Puzzle") was solved: once per
+//           puzzle per run, only when its `requires` is solved. If it has an
+//           instruction, that becomes `current` and is sent as ONE
+//           set_prompt (fixed art style + instruction), queued after any
+//           command in flight.
+//   reset : new run token → `current` back to the painting's opening
+//           instruction, nothing solved, room reset, run again
+//
+// `current` survives a reconnect: the new run starts with what the princess
+// was last doing, so progress is not lost.
 //
 // NO TIMEOUTS for the player (they may think for a long time):
 //   - a command that times out (REQUEST_TIMEOUT — not a refusal) is retried
@@ -31,19 +39,29 @@ import { puzzleStore } from "./puzzleState";
 //     same prompt, so the painting never goes dead;
 //   - dropped connections are reconnected by the app (useKeepConnected).
 // Audio is generated all along (model default) and only muted/unmuted
-// locally by the gramophone — puzzle 1 costs no extra command or credit.
+// locally by the gramophone.
 
 type Orbis = ReturnType<typeof useOrbisSession>;
-export type SolveOutcome = { ok: true } | { ok: false; reason: string; local?: boolean };
+export type SolveOutcome = { ok: true } | { ok: false; reason: string; local?: boolean; hint?: string };
 
 const log = (msg: string, kind: "info" | "cmd" | "error" = "info") => debug.push(kind, `[puzzle] ${msg}`);
 const isTimeout = (e: string | null) => !!e && /REQUEST_TIMEOUT|timed out/i.test(e);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export const MOCK_LABEL: Record<PuzzleBeat, (sound: boolean) => string> = {
-  urging: (s) => `Princess URGING — "draw your sword!" ${s ? "(sound ON)" : "(silent)"} (MOCK)`,
-  happy: (s) => `Princess LAUGHING — sword drawn! ${s ? "(sound ON)" : "(silent)"} (MOCK)`,
-};
+/** The painting's opening (falls back to the built-in text before the layout loads). */
+export function openingOf(s: PuzzleStateData): PuzzleStateData["current"] {
+  const o = s.setup.opening;
+  return {
+    label: "opening",
+    instruction: o.startInstruction.trim() || PUZZLE_ACTIONS.urging,
+    audioPrompt: o.startInstruction.trim() ? o.audioPrompt.trim() : PUZZLE_AUDIO_PROMPTS.urging,
+  };
+}
+
+export function mockLabel(s: PuzzleStateData): string {
+  const n = s.setup.puzzles.length;
+  return `Princess · ${s.current.label} · solved ${s.solved.length}/${n} ${s.soundOn ? "(sound ON)" : "(silent)"} (MOCK)`;
+}
 
 export function usePuzzleController(opts: {
   orbis: Orbis;
@@ -74,13 +92,11 @@ export function usePuzzleController(opts: {
 
   const isCurrent = (token: number) => puzzleStore.get().run === token;
 
-  const setMockBeat = useCallback(
-    (beat: PuzzleBeat) => {
-      mock.current?.setScene(beat === "urging" ? "night" : "initial");
-      mock.current?.setLabel(MOCK_LABEL[beat](puzzleStore.get().soundOn));
-    },
-    [mock],
-  );
+  const updateMock = useCallback(() => {
+    const s = puzzleStore.get();
+    mock.current?.setScene(allSolved(s.setup, s.solved) ? "initial" : "night");
+    mock.current?.setLabel(mockLabel(s));
+  }, [mock]);
 
   /** One command, retried on timeout until it succeeds or the run/connection ends. */
   const cmd = useCallback(async <T,>(token: number, label: string, call: () => Promise<T | undefined>, expectsReply: boolean) => {
@@ -97,6 +113,8 @@ export function usePuzzleController(opts: {
       if (!isCurrent(token) || statusRef.current !== "ready") return r;
     }
   }, []);
+
+  const promptOf = (instruction: string) => composePrompt(puzzleStore.get().style.prompt, instruction);
 
   // ── Serialized run body ─────────────────────────────────────────────────
   const runPuzzle = useCallback(
@@ -147,20 +165,21 @@ export function usePuzzleController(opts: {
           log(`initial image skipped: ${(e as Error).message}`, "error");
         }
       }
-      if (PUZZLE_AUDIO_PROMPTS.urging) {
-        const ap = await cmd(token, "set_audio_prompt(urging)", () => c.setAudioPrompt({ prompt: PUZZLE_AUDIO_PROMPTS.urging }), true);
+      const cur = puzzleStore.get().current;
+      if (cur.audioPrompt) {
+        const ap = await cmd(token, `set_audio_prompt(${cur.label})`, () => c.setAudioPrompt({ prompt: cur.audioPrompt }), true);
         if (!ap.ok) log("set_audio_prompt refused — audio follows the picture", "error");
       }
-      const p = await cmd(token, "set_prompt(puzzle:urging)", () => c.setPrompt({ prompt: composePrompt(puzzleStore.get().style.prompt, "urging") }), true);
+      const p = await cmd(token, `set_prompt(puzzle:${cur.label})`, () => c.setPrompt({ prompt: promptOf(cur.instruction) }), true);
       dirty.current = true;
-      if (!p.ok) return fail("set_prompt(urging) refused");
+      if (!p.ok) return fail(`set_prompt(${cur.label}) refused`);
       if (!isCurrent(token)) return log("superseded before start");
       puzzleStore.set({ phase: "starting" });
       const st = await cmd(token, "start", () => c.start(), false);
       if (!st.ok) return fail("start refused");
       if (!isCurrent(token)) return log("superseded right after start");
       puzzleStore.set({ phase: "priming" });
-      log(`run #${token} started — waiting for first frames of THIS run`);
+      log(`run #${token} started (${cur.label}) — waiting for first frames of THIS run`);
     },
     [cmd],
   );
@@ -181,9 +200,10 @@ export function usePuzzleController(opts: {
       puzzleStore.set({
         run: token,
         liveReady: false,
-        solvedRun: null,
+        solved: [],
         solvedAt: null,
-        happyAckChunk: null,
+        current: openingOf(s),
+        ackChunk: null,
         runStartedAt: Date.now(),
         firstFrameAt: null,
         lastError: null,
@@ -197,71 +217,91 @@ export function usePuzzleController(opts: {
       });
       log(`new run #${token} (${modeRef.current}) — ${why}`);
       if (modeRef.current === "mock") {
-        setMockBeat("urging");
+        updateMock();
         puzzleStore.set({ liveReady: true, firstFrameAt: Date.now() });
         return;
       }
       if (statusRef.current === "ready") enqueue(() => runPuzzle(token));
     },
-    [enqueue, runPuzzle, setMockBeat],
+    [enqueue, runPuzzle, updateMock],
   );
 
-  /** Called by the drawing layer when the recognizer accepts a sword. */
-  const solve = useCallback(async (): Promise<SolveOutcome> => {
+  /** Layout loaded: puzzles known. Before anything is solved, the opening
+   *  follows the painting component. */
+  const onSetup = useCallback(() => {
     const s = puzzleStore.get();
-    if (s.solvedRun === s.run) return { ok: false, reason: "already solved this run (deduped)" };
-    if (s.requireSoundFirst && !s.soundOn) return { ok: false, reason: "no sound yet (puzzle 1 unsolved)", local: true };
-    if (s.phase !== "urging") return { ok: false, reason: `princess not on screen yet (${s.phase})` };
-    const token = s.run;
-    puzzleStore.set({ solvedRun: token, solvedAt: Date.now() });
+    if (s.solved.length === 0 && s.current.label === "opening") puzzleStore.set({ current: openingOf(s) });
+    if (modeRef.current === "mock") updateMock();
+  }, [updateMock]);
 
-    if (modeRef.current === "mock") {
-      setMockBeat("happy");
-      puzzleStore.set({ phase: "solved" });
-      log("MOCK solved — no Reactor command sent");
+  /** A puzzle's trigger happened (sword drawn, needle down, object touched…). */
+  const solve = useCallback(
+    (id: string): SolveOutcome => {
+      const s = puzzleStore.get();
+      const p = s.setup.puzzles.find((q) => q.id === id);
+      if (!p) return { ok: false, reason: `no puzzle "${id}"` };
+      if (s.solved.includes(id)) return { ok: false, reason: "already solved this run" };
+      if (!isUnlocked(p, s.setup, s.solved)) {
+        const b = blocker(p, s.setup, s.solved);
+        return { ok: false, local: true, reason: `needs "${p.requires}" first`, hint: b?.hint || undefined };
+      }
+      const token = s.run;
+      const solved = [...s.solved, id];
+      const instruction = p.instruction.trim();
+      puzzleStore.set({
+        solved,
+        solvedAt: Date.now(),
+        ...(instruction ? { current: { label: p.id, instruction, audioPrompt: p.audioPrompt.trim() } } : {}),
+      });
+      log(`puzzle "${id}" solved (${solved.length}/${s.setup.puzzles.length})${instruction ? " → new instruction" : " (no instruction)"}`);
+      if (modeRef.current === "mock") {
+        updateMock();
+        return { ok: true };
+      }
+      if (!instruction) return { ok: true };
+      if (statusRef.current !== "ready") {
+        log(`"${id}" instruction will be sent when the painting reconnects`);
+        return { ok: true };
+      }
+      const c = clientRef.current;
+      enqueue(async () => {
+        if (!isCurrent(token) || statusRef.current !== "ready") return;
+        const cur = puzzleStore.get().current;
+        if (cur.label !== id) return; // a later puzzle already replaced it
+        if (cur.audioPrompt) void runRef.current(`set_audio_prompt(${id})`, () => c.setAudioPrompt({ prompt: cur.audioPrompt }), true);
+        const r = await cmd(token, `set_prompt(puzzle:${id})`, () => c.setPrompt({ prompt: promptOf(cur.instruction) }), true);
+        if (!isCurrent(token)) return;
+        if (!r.ok) {
+          puzzleStore.set({ lastError: `set_prompt(${id}) refused — press Reset puzzle` });
+          return;
+        }
+        const chunk = debug.get().currentChunk;
+        puzzleStore.set({ ackChunk: chunk });
+        log(`"${id}" instruction acknowledged at chunk ${chunk ?? "?"} — picture morphs at the next chunk boundary`, "cmd");
+      });
       return { ok: true };
-    }
-    puzzleStore.set({ phase: "solving" });
-    const c = clientRef.current;
-    if (PUZZLE_AUDIO_PROMPTS.happy) {
-      void runRef.current("set_audio_prompt(happy)", () => c.setAudioPrompt({ prompt: PUZZLE_AUDIO_PROMPTS.happy }), true);
-    }
-    const r = await cmd(token, "set_prompt(puzzle:happy)", () => c.setPrompt({ prompt: composePrompt(puzzleStore.get().style.prompt, "happy") }), true);
-    if (!isCurrent(token)) return { ok: false, reason: "run was reset" };
-    if (!r.ok) {
-      puzzleStore.set({ phase: "urging", solvedRun: null, lastError: "set_prompt(happy) refused" });
-      return { ok: false, reason: "set_prompt refused" };
-    }
-    const chunk = debug.get().currentChunk;
-    puzzleStore.set({ phase: "solved", happyAckChunk: chunk });
-    log(`happy prompt acknowledged at chunk ${chunk ?? "?"} — picture morphs at the next chunk boundary`, "cmd");
-    return { ok: true };
-  }, [cmd, setMockBeat]);
+    },
+    [cmd, enqueue, updateMock],
+  );
 
-  /** Style tuner: re-send the current beat's prompt with the edited style
+  /** Style tuner: re-send the current instruction with the edited style
    *  (same session — the picture morphs at the next chunk, no restart). */
   const applyStyleLive = useCallback(async (): Promise<SolveOutcome> => {
     const s = puzzleStore.get();
     if (modeRef.current !== "live") return { ok: false, reason: "not in live mode" };
     if (statusRef.current !== "ready") return { ok: false, reason: "not connected" };
-    if (s.phase !== "urging" && s.phase !== "solved" && s.phase !== "priming") return { ok: false, reason: `not generating (${s.phase})` };
-    const beat: PuzzleBeat = s.phase === "solved" ? "happy" : "urging";
-    const r = await cmd(s.run, `set_prompt(puzzle:${beat}, style tuner)`, () => clientRef.current.setPrompt({ prompt: composePrompt(puzzleStore.get().style.prompt, beat) }), true);
+    if (s.phase !== "urging" && s.phase !== "priming") return { ok: false, reason: `not generating (${s.phase})` };
+    const cur = s.current;
+    const r = await cmd(s.run, `set_prompt(puzzle:${cur.label}, style tuner)`, () => clientRef.current.setPrompt({ prompt: promptOf(cur.instruction) }), true);
     if (!r.ok) return { ok: false, reason: "set_prompt refused" };
-    log(`style applied live (${beat}) at chunk ${debug.get().currentChunk ?? "?"}`, "cmd");
+    log(`style applied live (${cur.label}) at chunk ${debug.get().currentChunk ?? "?"}`, "cmd");
     return { ok: true };
   }, [cmd]);
 
   /** Gramophone changed (mock label only; live audio is muted locally by the app). */
-  const onSound = useCallback(
-    (on: boolean) => {
-      if (modeRef.current === "mock") {
-        const beat: PuzzleBeat = puzzleStore.get().phase === "solved" ? "happy" : "urging";
-        mock.current?.setLabel(MOCK_LABEL[beat](on));
-      }
-    },
-    [mock],
-  );
+  const onSound = useCallback(() => {
+    if (modeRef.current === "mock") updateMock();
+  }, [updateMock]);
 
   // ── First frames of THIS run → show live video ──────────────────────────
   useViskoOrbisStableChunkComplete((m) => {
@@ -300,11 +340,11 @@ export function usePuzzleController(opts: {
       return;
     }
     if (modeRef.current === "live" && puzzleStore.get().phase === "waiting-connection") {
-      // A fresh session after a drop: restart the urging run, but keep the
-      // player's progress in the room (needle position, drawing).
+      // A fresh session after a drop: run again with the CURRENT instruction,
+      // keeping the player's progress (solved puzzles, needle, drawing).
       const s = puzzleStore.get();
       const token = s.run + 1;
-      puzzleStore.set({ run: token, liveReady: false, solvedRun: null, happyAckChunk: null, runStartedAt: Date.now(), firstFrameAt: null, lastError: null, continuations: 0 });
+      puzzleStore.set({ run: token, liveReady: false, ackChunk: null, runStartedAt: Date.now(), firstFrameAt: null, lastError: null, continuations: 0 });
       log(`new run #${token} (live) — connected`);
       enqueue(() => runPuzzle(token));
     }
@@ -315,5 +355,5 @@ export function usePuzzleController(opts: {
     resetPuzzle(`mode ${mode}`);
   }, [mode, resetPuzzle]);
 
-  return { resetPuzzle, solve, onSound, applyStyleLive };
+  return { resetPuzzle, solve, onSound, onSetup, applyStyleLive };
 }

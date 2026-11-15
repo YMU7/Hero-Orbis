@@ -9,12 +9,15 @@ import { debug, useDebug, type SourceMode } from "../mvp/lib/debugState";
 import { installQuestEmulatorIfRequested } from "../mvp/lib/xrEmulation";
 import type { VideoHealth } from "../mvp/lib/videoTextureHealth";
 import { BOARD_H, PUZZLE_RESOLUTION, WRONG_HINT_IDLE_MS } from "./puzzleConfig";
-import { MOCK_LABEL, usePuzzleController } from "./lib/usePuzzleController";
+import { mockLabel, usePuzzleController } from "./lib/usePuzzleController";
 import { puzzleStore, usePuzzleState } from "./lib/puzzleState";
 import { fetchPuzzleToken } from "./lib/puzzleToken";
 import { recognizeSword, type Stroke } from "./lib/swordRecognizer";
 import { parseStyle } from "./lib/style";
 import { applyPaintGrade } from "./lib/roomParts";
+import { roomAudio, SOUND_IDS, type SoundId } from "./lib/roomAudio";
+import { allSolved, collectPuzzles, nextHint, puzzlesWith, swordParamsOf, type PuzzleDef } from "./lib/puzzleChain";
+import type { SceneObject } from "../lib/sceneData/types";
 import { PuzzleScene, type RoomApi } from "./components/PuzzleScene";
 import { PuzzlePanel } from "./components/PuzzlePanel";
 
@@ -38,33 +41,6 @@ const PLACEHOLDER: Record<string, string[]> = {
   priming: ["Something stirs inside the painting…", ""],
   error: ["The painting has faded", "see panel — Reset to retry"],
 };
-
-/** A soft music-box loop for MOCK mode (no Orbis audio there). */
-function createMusicBox(ctx: AudioContext) {
-  const notes = [659.3, 784, 987.8, 784, 880, 1046.5, 880, 784];
-  let i = 0;
-  const gain = ctx.createGain();
-  gain.gain.value = 0.12;
-  gain.connect(ctx.destination);
-  const tick = () => {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = notes[i++ % notes.length];
-    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(1, ctx.currentTime + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
-    o.connect(g).connect(gain);
-    o.start();
-    o.stop(ctx.currentTime + 0.65);
-  };
-  tick();
-  const timer = setInterval(tick, 350);
-  return () => {
-    clearInterval(timer);
-    gain.disconnect();
-  };
-}
 
 function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const [mode, setMode] = useState<SourceMode>("mock");
@@ -189,9 +165,8 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     const src = createMockSource();
     mockRef.current = src;
     const s = puzzleStore.get();
-    const beat = s.phase === "solved" ? "happy" : "urging";
-    src.setScene(beat === "happy" ? "initial" : "night");
-    src.setLabel(MOCK_LABEL[beat](s.soundOn));
+    src.setScene(allSolved(s.setup, s.solved) ? "initial" : "night");
+    src.setLabel(mockLabel(s));
     void bindStream(mockVideo, src.stream);
     const stop = watchVideo(mockVideo, (st) => debug.set({ mock: st }));
     return () => {
@@ -222,16 +197,10 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     a.muted = !(mode === "live" && ps.soundOn);
     if (!a.muted && a.paused && a.srcObject) void a.play().catch((e) => debug.push("error", `audio.play failed — ${(e as Error).message}`));
   }, [mode, ps.soundOn]);
-  // WebAudio context for the mock music box, unlocked by any user gesture.
-  const audioCtx = useRef<AudioContext | null>(null);
+  // Room audio (lib/roomAudio.ts): unlocked by any user gesture.
   useEffect(() => {
     const unlock = () => {
-      try {
-        audioCtx.current ??= new AudioContext();
-        void audioCtx.current.resume();
-      } catch {
-        /* no WebAudio */
-      }
+      roomAudio.unlock();
       // The same gesture lets the live <audio> element play later.
       const a = audioRef.current;
       if (a?.srcObject && a.paused) void a.play().catch(() => undefined);
@@ -243,11 +212,15 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       window.removeEventListener("keydown", unlock, true);
     };
   }, []);
+  // Channels: background (gated by puzzle 1 unless the mix says otherwise),
+  // gramophone record (objects, positional), voice = the Orbis <audio>.
+  useEffect(() => roomAudio.setMix(ps.style.mix), [ps.style.mix]);
+  useEffect(() => roomAudio.bindVoice(audioRef.current), []);
   useEffect(() => {
-    if (mode !== "mock" || !ps.soundOn || !audioCtx.current) return;
-    void audioCtx.current.resume();
-    return createMusicBox(audioCtx.current);
-  }, [mode, ps.soundOn]);
+    roomAudio.setGramophone(ps.soundOn);
+    roomAudio.setBackground(ps.soundOn || ps.style.mix.backgroundBeforeSound);
+  }, [ps.soundOn, ps.style.mix.backgroundBeforeSound]);
+  useEffect(() => roomAudio.setDrawing(ps.drawMode !== "none"), [ps.drawMode]);
 
   const onVideoHealth = useCallback((h: VideoHealth) => {
     const d0 = debug.get();
@@ -275,16 +248,57 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     hintTimer.current = setTimeout(() => puzzleStore.set({ hint: null }), ms);
   }, []);
 
-  // ── Recognition: runs on every finished stroke ─────────────────────────
-  const trySolve = useCallback(() => {
-    void puzzle.solve().then((o) => {
-      if (o.ok) debug.push("info", "[puzzle] sword recognized → happy prompt");
-      else {
-        debug.push("info", `[puzzle] sword recognized but not sent — ${o.reason}`);
-        if (o.local) flashHint("She is calling out to you… but the room is silent.");
+  // ── Puzzle components (Scene Editor "+ Puzzle") ──────────────────────
+  // attempt(): one puzzle's trigger happened. Locked → local hint only.
+  const attempt = useCallback(
+    (pz: PuzzleDef, how: string, quiet = false): boolean => {
+      const o = puzzle.solve(pz.id);
+      if (o.ok) {
+        if ((SOUND_IDS as readonly string[]).includes(pz.sound)) roomAudio.play(pz.sound as SoundId);
+        debug.push("info", `[puzzle] "${pz.id}" solved via ${how}`);
+        return true;
       }
-    });
-  }, [puzzle, flashHint]);
+      if (!quiet) debug.push("info", `[puzzle] "${pz.id}" (${how}) not solved — ${o.reason}`);
+      if (o.local && !quiet) flashHint(o.hint ?? "Something else must happen first…");
+      return false;
+    },
+    [puzzle, flashHint],
+  );
+  // Triggers that are a STATE (needle on the record, a sword on the canvas)
+  // count as soon as their requirement is met; touch/pinch must be redone.
+  const retryStates = useCallback(() => {
+    for (let changed = true; changed; ) {
+      changed = false;
+      const s = puzzleStore.get();
+      const live = [
+        ...(s.soundOn ? puzzlesWith(s.setup, "needle") : []),
+        ...(s.lastResult?.isSword ? puzzlesWith(s.setup, "draw-sword") : []),
+      ].filter((p) => !s.solved.includes(p.id));
+      for (const p of live) if (attempt(p, "state already true", true)) changed = true;
+    }
+  }, [attempt]);
+  const trigger = useCallback(
+    (list: PuzzleDef[], how: string) => {
+      let any = false;
+      for (const p of list) if (!puzzleStore.get().solved.includes(p.id) && attempt(p, how)) any = true;
+      if (any) retryStates();
+    },
+    [attempt, retryStates],
+  );
+
+  // Layout loaded by the scene: collect the puzzle components.
+  const onLayout = useCallback(
+    (layout: SceneObject[]) => {
+      const setup = collectPuzzles(layout);
+      const sword = puzzlesWith(setup, "draw-sword")[0];
+      puzzleStore.set({ setup, params: swordParamsOf(sword) });
+      puzzle.onSetup();
+      debug.push("info", `[puzzle] ${setup.puzzles.length} puzzle(s): ${setup.puzzles.map((p) => `${p.id}[${p.trigger}${p.requires ? ` after ${p.requires}` : ""}]`).join(", ") || "none"}`);
+    },
+    [puzzle],
+  );
+
+  // ── Recognition: runs on every finished stroke ─────────────────────────
   const wrongTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const evaluate = useCallback((strokes: ReadonlyArray<Stroke>) => {
     const r = recognizeSword(strokes, BOARD_H, puzzleStore.get().params);
@@ -297,8 +311,9 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       debug.push("info", `[puzzle] stroke ${strokes.length} via ${source} → ${r.isSword ? `SWORD (score ${r.score.toFixed(2)})` : r.reason}`);
       if (wrongTimer.current) clearTimeout(wrongTimer.current);
       if (r.isSword) {
+        if (!puzzleStore.get().swordFlashUntil || Date.now() > puzzleStore.get().swordFlashUntil) roomAudio.play("sword-right");
         puzzleStore.set({ swordFlashUntil: Date.now() + 1500, wrongFlashUntil: 0 });
-        trySolve();
+        trigger(puzzlesWith(puzzleStore.get().setup, "draw-sword"), "sword drawing");
         return;
       }
       // Wrong / unfinished drawing: LOCAL feedback only, after a pause.
@@ -307,34 +322,38 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
         const now = roomApi.current?.strokes().length ?? 0;
         if (now !== count || puzzleStore.get().lastResult?.isSword) return;
         puzzleStore.set({ wrongFlashUntil: Date.now() + 1100, wrongHints: puzzleStore.get().wrongHints + 1 });
+        roomAudio.play("sword-wrong");
         debug.push("info", `[puzzle] not a sword (${puzzleStore.get().lastResult?.reason ?? "?"}) — local hint only, no command sent`);
       }, WRONG_HINT_IDLE_MS);
     },
-    [evaluate, trySolve],
+    [evaluate, trigger],
   );
   useEffect(() => () => {
     if (wrongTimer.current) clearTimeout(wrongTimer.current);
     if (hintTimer.current) clearTimeout(hintTimer.current);
   }, []);
 
-  // Puzzle 1 solved / undone.
+  // Gramophone needle down / up.
   const onSound = useCallback(
     (on: boolean) => {
+      roomAudio.play(on ? "needle-down" : "needle-up");
       puzzleStore.set({ soundOn: on, soundOnAt: on ? Date.now() : puzzleStore.get().soundOnAt });
       debug.push("info", `[puzzle] gramophone ${on ? "PLAYING — room has sound" : "stopped — silent"}`);
-      puzzle.onSound(on);
-      // A sword already on the canvas counts once she can be heard.
-      if (on && puzzleStore.get().lastResult?.isSword) trySolve();
+      puzzle.onSound();
+      if (on) trigger(puzzlesWith(puzzleStore.get().setup, "needle"), "needle on the record");
     },
-    [puzzle, trySolve],
+    [puzzle, trigger],
   );
-  // After a reconnect the run restarts at "urging": re-apply a drawn sword.
-  const prevPhase = useRef(ps.phase);
-  useEffect(() => {
-    const was = prevPhase.current;
-    prevPhase.current = ps.phase;
-    if (ps.phase === "urging" && was !== "urging" && was !== "solving" && puzzleStore.get().lastResult?.isSword && puzzleStore.get().soundOn) trySolve();
-  }, [ps.phase, trySolve]);
+
+  // Touch / pinch / click on an object that carries a puzzle.
+  const onObjectTrigger = useCallback(
+    (objectId: string, kind: "touch" | "pinch" | "click") => {
+      const setup = puzzleStore.get().setup;
+      const list = kind === "click" ? [...puzzlesWith(setup, "touch", objectId), ...puzzlesWith(setup, "pinch", objectId)] : puzzlesWith(setup, kind, objectId);
+      trigger(list, kind);
+    },
+    [trigger],
+  );
 
   const onButton = useCallback(
     (id: "reset" | "clear", detail: string) => {
@@ -363,19 +382,17 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       ? ps.nextReconnectAt
         ? "The painting flickers… reconnecting"
         : "An empty painting hangs on the wall."
-      : ps.phase === "solved"
+      : allSolved(ps.setup, ps.solved)
         ? "The princess laughs with joy!"
-        : ps.phase === "urging" || ps.phase === "solving"
-          ? ps.soundOn
-            ? "“Draw your sword!”"
-            : "The princess is calling out… but you hear nothing."
+        : ps.phase === "urging"
+          ? (nextHint(ps.setup, ps.solved) ?? "")
           : "Something stirs inside the painting…");
 
   const activeVideo = mode === "live" ? liveVideo : mockVideo;
   const vh = d.videoHealth;
   const res = ps.lastResult;
   const hudLines = [
-    `${mode === "mock" ? "MOCK" : "LIVE"} · ${ps.phase} · run #${ps.run} · chunk ${d.currentChunk ?? "-"}${ps.solvedRun === ps.run ? " · SOLVED" : ""}`,
+    `${mode === "mock" ? "MOCK" : "LIVE"} · ${ps.phase} · run #${ps.run} · chunk ${d.currentChunk ?? "-"} · solved ${ps.solved.length}/${ps.setup.puzzles.length}`,
     `sound ${ps.soundOn ? "ON" : "off"} · strokes ${ps.strokeCount} · ${res ? (res.isSword ? `SWORD ${res.score.toFixed(2)}` : res.reason) : "-"}`,
     `crayon ${ps.crayonHolder ?? "on ledge"} · ${ps.drawMode} · arm ${ps.tonearmHolder ?? "-"}`,
     `fps ${vh?.renderFps ?? "-"}  dec ${vh?.decodedFps ?? "-"}  tex ${vh?.texFps ?? "-"}/s${vh?.fallback ? "  FALLBACK" : ""}`,
@@ -397,7 +414,12 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             onStrokeEnd={onStrokeEnd}
             onButton={onButton}
             onSound={onSound}
+            onLayout={onLayout}
+            onObjectTrigger={onObjectTrigger}
             onCrayonHolder={(h) => {
+              const was = puzzleStore.get().crayonHolder;
+              if (h && !was) roomAudio.play("crayon-pick");
+              else if (!h && was) roomAudio.play("crayon-drop");
               puzzleStore.set({ crayonHolder: h });
               debug.push("xr", h ? `crayon picked up by ${h}` : "crayon back on the ledge");
             }}

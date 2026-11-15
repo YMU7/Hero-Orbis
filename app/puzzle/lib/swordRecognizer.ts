@@ -55,6 +55,30 @@ export const DEFAULT_SWORD_PARAMS: SwordParams = {
   maxExtraInkRatio: 1.0,
 };
 
+/** Slider ranges for the sword thresholds (shared by the /puzzle panel and the editor). */
+export const SWORD_LIMITS: Array<{ key: keyof SwordParams; label: string; min: number; max: number; step: number }> = [
+  { key: "minBladeFrac", label: "min blade (× board h)", min: 0.1, max: 0.9, step: 0.05 },
+  { key: "bladeStraightMin", label: "blade straightness", min: 0.6, max: 0.99, step: 0.01 },
+  { key: "guardStraightMin", label: "guard straightness", min: 0.5, max: 0.99, step: 0.01 },
+  { key: "guardMinRatio", label: "guard ≥ × blade", min: 0.05, max: 0.6, step: 0.01 },
+  { key: "guardMaxRatio", label: "guard ≤ × blade", min: 0.3, max: 1.5, step: 0.05 },
+  { key: "angleTolDeg", label: "angle tol (°)", min: 5, max: 60, step: 1 },
+  { key: "guardPosMin", label: "guard pos ≥ (from end)", min: 0, max: 0.3, step: 0.01 },
+  { key: "guardPosMax", label: "guard pos ≤ (from end)", min: 0.15, max: 0.5, step: 0.01 },
+  { key: "crossMin", label: "crossing margin", min: 0, max: 0.45, step: 0.01 },
+  { key: "maxExtraInkRatio", label: "extra ink ≤ × blade", min: 0, max: 4, step: 0.1 },
+];
+
+/** Thresholds from untrusted data: missing / bad keys → defaults, clamped. */
+export function swordParamsFrom(raw: Record<string, unknown> | undefined): SwordParams {
+  const out = { ...DEFAULT_SWORD_PARAMS };
+  for (const L of SWORD_LIMITS) {
+    const v = raw?.[L.key];
+    if (typeof v === "number" && Number.isFinite(v)) out[L.key] = Math.min(L.max, Math.max(L.min, v));
+  }
+  return out;
+}
+
 /** Per-criterion scores in [0,1]; 1 = comfortably inside the threshold. */
 export type SwordScores = {
   blade: number;

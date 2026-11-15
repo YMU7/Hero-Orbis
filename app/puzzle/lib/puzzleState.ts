@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { DEFAULT_SWORD_PARAMS, type SwordParams, type SwordResult } from "./swordRecognizer";
-import { DEFAULT_REQUIRE_SOUND_FIRST } from "../puzzleConfig";
+import { EMPTY_SETUP, type PuzzleSetup } from "./puzzleChain";
 import { defaultStyle, type PuzzleStyle } from "./style";
 
 // UI-facing state of the /puzzle test. Written by usePuzzleController and the
@@ -15,8 +15,8 @@ export type PuzzlePhase =
   | "starting" // start sent
   | "priming" // generating, no frames from THIS run yet
   | "urging" // princess on screen, waiting for a sword
-  | "solving" // sword recognized, set_prompt(happy) in flight
-  | "solved" // set_prompt(happy) acknowledged (or mock solved)
+  | "solving" // (unused since puzzle components; kept for old panels)
+  | "solved" // (unused since puzzle components; see allSolved())
   | "error";
 
 export type PuzzleStateData = {
@@ -25,19 +25,24 @@ export type PuzzleStateData = {
   phase: PuzzlePhase;
   /** True once THIS run produced frames (gates live video in the painting). */
   liveReady: boolean;
-  /** Run token for which the happy set_prompt was already sent (dedupe). */
-  solvedRun: number | null;
+  /** Puzzles from the layout's components (Scene Editor "+ Puzzle"). */
+  setup: PuzzleSetup;
+  /** Puzzle ids solved in this run (kept across reconnects, cleared by Reset). */
+  solved: string[];
   solvedAt: number | null;
+  /** What the princess is currently doing: the opening instruction or the
+   *  last solved puzzle's instruction. Re-sent after a reconnect. */
+  current: { label: string; instruction: string; audioPrompt: string };
   runStartedAt: number | null;
   firstFrameAt: number | null;
-  happyAckChunk: number | null;
+  /** Chunk at which the last puzzle instruction was acknowledged. */
+  ackChunk: number | null;
   lastError: string | null;
   /** Number of automatic restarts after generation_complete in this run. */
   continuations: number;
-  // Puzzle 1 — gramophone
+  // Gramophone (needle on the record)
   soundOn: boolean;
   soundOnAt: number | null;
-  requireSoundFirst: boolean;
   // Puzzle 2 — drawing / recognition
   strokeCount: number;
   lastResult: SwordResult | null;
@@ -68,16 +73,17 @@ export const usePuzzleState = create<PuzzleState>((set) => ({
   run: 0,
   phase: "waiting-connection",
   liveReady: false,
-  solvedRun: null,
+  setup: EMPTY_SETUP,
+  solved: [],
   solvedAt: null,
+  current: { label: "opening", instruction: "", audioPrompt: "" },
   runStartedAt: null,
   firstFrameAt: null,
-  happyAckChunk: null,
+  ackChunk: null,
   lastError: null,
   continuations: 0,
   soundOn: false,
   soundOnAt: null,
-  requireSoundFirst: DEFAULT_REQUIRE_SOUND_FIRST,
   strokeCount: 0,
   lastResult: null,
   wrongHints: 0,

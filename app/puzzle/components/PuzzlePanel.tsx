@@ -3,8 +3,12 @@
 import { type ReactNode } from "react";
 import { useDebug, type SourceMode } from "../../mvp/lib/debugState";
 import { usePuzzleState, puzzleStore } from "../lib/puzzleState";
-import { DEFAULT_SWORD_PARAMS, type SwordParams } from "../lib/swordRecognizer";
+import { DEFAULT_SWORD_PARAMS } from "../lib/swordRecognizer";
 import { StyleTuner } from "./StyleTuner";
+import { MIX_CHANNELS } from "../lib/style";
+import { SWORD_LIMITS } from "../lib/swordRecognizer";
+import { isUnlocked } from "../lib/puzzleChain";
+import { roomAudio } from "../lib/roomAudio";
 
 // Desktop diagnostics + controls for /puzzle. Reads stores only; actions are
 // callbacks. There is deliberately NO "solve" button: only a recognised
@@ -31,18 +35,7 @@ function Bar({ k, v }: { k: string; v: number }) {
   );
 }
 
-const SLIDERS: Array<{ key: keyof SwordParams; label: string; min: number; max: number; step: number }> = [
-  { key: "minBladeFrac", label: "min blade (× board h)", min: 0.1, max: 0.9, step: 0.05 },
-  { key: "bladeStraightMin", label: "blade straightness", min: 0.6, max: 0.99, step: 0.01 },
-  { key: "guardStraightMin", label: "guard straightness", min: 0.5, max: 0.99, step: 0.01 },
-  { key: "guardMinRatio", label: "guard ≥ × blade", min: 0.05, max: 0.6, step: 0.01 },
-  { key: "guardMaxRatio", label: "guard ≤ × blade", min: 0.3, max: 1.5, step: 0.05 },
-  { key: "angleTolDeg", label: "angle tol (°)", min: 5, max: 60, step: 1 },
-  { key: "guardPosMin", label: "guard pos ≥ (from end)", min: 0, max: 0.3, step: 0.01 },
-  { key: "guardPosMax", label: "guard pos ≤ (from end)", min: 0.15, max: 0.5, step: 0.01 },
-  { key: "crossMin", label: "crossing margin", min: 0, max: 0.45, step: 0.01 },
-  { key: "maxExtraInkRatio", label: "extra ink ≤ × blade", min: 0, max: 4, step: 0.1 },
-];
+const SLIDERS = SWORD_LIMITS;
 
 export function PuzzlePanel(p: {
   hasKey: boolean;
@@ -104,12 +97,25 @@ export function PuzzlePanel(p: {
         <Row k="chunk" v={d.currentChunk ?? "—"} />
         <Row k="phase / run" v={`${s.phase} · #${s.run}`} warn={s.phase === "error"} />
         <Row k="first frames after" v={s.runStartedAt && s.firstFrameAt ? `${((s.firstFrameAt - s.runStartedAt) / 1000).toFixed(1)} s` : "—"} />
-        <Row k="solved (happy ack @chunk)" v={s.solvedRun === s.run ? `yes${s.happyAckChunk != null ? ` @${s.happyAckChunk}` : ""}` : "no"} />
-        <Row k="puzzle 1: gramophone sound" v={s.soundOn ? "ON" : "off (muted)"} />
-        <label className="flex items-center justify-between gap-3 border-b border-zinc-800/60 py-0.5 text-[11px]">
-          <span className="text-zinc-500">sword counts only after sound</span>
-          <input type="checkbox" checked={s.requireSoundFirst} onChange={(e) => puzzleStore.set({ requireSoundFirst: e.target.checked })} />
-        </label>
+        <Row k="princess is doing" v={`${s.current.label}${s.ackChunk != null ? ` (ack @${s.ackChunk})` : ""}`} />
+        <Row k="gramophone sound" v={s.soundOn ? "ON" : "off (muted)"} />
+        <div className="border-b border-zinc-800/60 py-1 text-[11px]">
+          <div className="text-zinc-500">puzzles (edit in /editor?scene=puzzle → select object → Puzzle)</div>
+          {s.setup.puzzles.length === 0 && <div className="text-zinc-600">none in the layout</div>}
+          {s.setup.puzzles.map((pz) => {
+            const done = s.solved.includes(pz.id);
+            const open = isUnlocked(pz, s.setup, s.solved);
+            return (
+              <div key={pz.id} className="flex justify-between gap-2 font-mono">
+                <span>
+                  {pz.id} · {pz.trigger} on {pz.objectName}
+                  {pz.requires ? ` · after ${pz.requires}` : ""}
+                </span>
+                <span className={done ? "text-emerald-400" : open ? "text-amber-300" : "text-zinc-600"}>{done ? "solved" : open ? "open" : "locked"}</span>
+              </div>
+            );
+          })}
+        </div>
         <Row k="crayon / tonearm" v={`${s.crayonHolder ?? "on ledge"} · ${s.drawMode} / ${s.tonearmHolder ?? "—"}`} />
         <Row k="auto-continues (generation_complete)" v={s.continuations} />
         <Row
@@ -125,6 +131,37 @@ export function PuzzlePanel(p: {
         <Row k="render / dec / tex" v={d.videoHealth ? `${d.videoHealth.renderFps} / ${d.videoHealth.decodedFps ?? "?"} / ${d.videoHealth.texFps}` : "—"} />
         <Row k="emulation" v={d.emulation} />
         <Row k="XR / inputs" v={`${d.xrSessionActive ? "in XR" : "2D"} · ${d.inputSources.length}`} />
+      </section>
+
+      <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+        <h3 className="mb-2 text-xs uppercase tracking-wider text-zinc-400">Audio channels</h3>
+        {MIX_CHANNELS.map((c) => (
+          <label key={c.key} className="flex items-center gap-2 text-[11px]">
+            <span className="w-36 shrink-0 text-zinc-500">{c.label}</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={s.style.mix[c.key]}
+              onChange={(e) => puzzleStore.set({ style: { ...s.style, mix: { ...s.style.mix, [c.key]: Number(e.target.value) } } })}
+              className="flex-1"
+              aria-label={`${c.label} volume`}
+            />
+            <span className="w-10 text-right font-mono">{s.style.mix[c.key].toFixed(2)}</span>
+          </label>
+        ))}
+        <label className="mt-1 flex items-center gap-2 text-[11px]">
+          <input
+            type="checkbox"
+            checked={s.style.mix.backgroundBeforeSound}
+            onChange={(e) => puzzleStore.set({ style: { ...s.style, mix: { ...s.style.mix, backgroundBeforeSound: e.target.checked } } })}
+          />
+          <span className="text-zinc-500">background plays before the gramophone</span>
+        </label>
+        <p className="mt-1 text-[10px] text-zinc-500">
+          audio {roomAudio.debug().state} · click the page once to enable. Save with the Style tuner&apos;s Save. Recorded files: data/puzzle-audio/&lt;id&gt;.mp3
+        </p>
       </section>
 
       <StyleTuner live={p.mode === "live" && d.reactorStatus === "ready"} onApplyLive={p.onApplyStyle} />
@@ -145,6 +182,7 @@ export function PuzzlePanel(p: {
         )}
         <details>
           <summary className="cursor-pointer text-[11px] text-zinc-400">Thresholds</summary>
+          <p className="mt-1 text-[10px] text-zinc-500">Live test only, kept until reload. To keep them, set them on the easel's puzzle in /editor?scene=puzzle.</p>
           <div className="mt-2 flex flex-col gap-1">
             {SLIDERS.map((sl) => (
               <label key={sl.key} className="flex items-center gap-2 text-[11px]">

@@ -9,6 +9,7 @@ import { DrawingBoard } from "../lib/drawingBoard";
 import { HandInput, type Grabber } from "../lib/handInput";
 import { Crayon, type DrawMode } from "../lib/crayon";
 import { Gramophone } from "../lib/gramophone";
+import { roomAudio } from "../lib/roomAudio";
 import {
   addRoomLights,
   buildDecor,
@@ -66,6 +67,10 @@ export type PuzzleSceneProps = {
   onStrokeEnd: (strokes: ReadonlyArray<Stroke>, source: string) => void;
   onButton: (id: "reset" | "clear", detail: string) => void;
   onSound: (on: boolean) => void;
+  /** The layout the room was built from (puzzle components live on it). */
+  onLayout: (layout: SceneObject[]) => void;
+  /** An object carrying a touch/pinch puzzle was touched / pinched / clicked. */
+  onObjectTrigger: (objectId: string, kind: "touch" | "pinch" | "click") => void;
   onCrayonHolder: (holder: string | null) => void;
   onTonearmHolder: (holder: string | null) => void;
   onDrawMode: (m: DrawMode) => void;
@@ -111,6 +116,28 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     const shell = buildShell();
     scene.add(shell);
 
+    // ── Objects with a touch / pinch puzzle component ────────────────────
+    // World bounds are taken once (the room is static); a fingertip inside
+    // (+2 cm) is a touch, a pinch inside (+5 cm) is a pinch, a mouse click or
+    // controller ray hit is a click.
+    type Target = { id: string; group: THREE.Object3D; box: THREE.Box3; armed: boolean };
+    const targets: Target[] = [];
+    const isTargetPuzzle = (o: SceneObject) => o.puzzle?.trigger === "touch" || o.puzzle?.trigger === "pinch";
+    const addTarget = (id: string, g: THREE.Object3D) => {
+      g.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(g);
+      if (box.isEmpty()) box.setFromCenterAndSize(g.getWorldPosition(new THREE.Vector3()), new THREE.Vector3(0.3, 0.3, 0.3));
+      targets.push({ id, group: g, box, armed: true });
+    };
+    const targetOf = (obj: THREE.Object3D | null): Target | undefined => {
+      for (let o = obj; o; o = o.parent) {
+        const t = targets.find((x) => x.group === o);
+        if (t) return t;
+      }
+      return undefined;
+    };
+    const fireTarget = (t: Target, kind: "touch" | "pinch" | "click") => propsRef.current.onObjectTrigger(t.id, kind);
+
     // ── Decor + imported GLBs from the layout (non-interactive) ─────────
     const env = new THREE.Group();
     env.name = "environment";
@@ -130,7 +157,8 @@ export function PuzzleScene(props: PuzzleSceneProps) {
           },
         ).then((g) => {
           if (!disposed) env.add(g);
-          return { g, builtin: o.asset.startsWith("builtin:") };
+          if (isTargetPuzzle(o)) addTarget(o.id, g);
+          return { g, builtin: o.asset.startsWith("builtin:") && !isTargetPuzzle(o) };
         }),
       );
     // Phase E: once every piece exists, merge the shell + built-in decor per
@@ -174,10 +202,16 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const now = performance.now();
       if (now < b.flashUntil + 600) return;
       b.flashUntil = now + 400;
+      roomAudio.play("button");
       propsRef.current.onButton(b.id, detail);
     };
 
     scene.updateMatrixWorld(true);
+    for (const [k, g] of [["painting", painting.group], ["pedestal", pedestal.group]] as const) {
+      const o = placement(k);
+      if (isTargetPuzzle(o)) addTarget(o.id, g);
+    }
+    propsRef.current.onLayout(layout);
     const crayonRest = mount.localToWorld(new THREE.Vector3(0.28, -BOARD_H / 2 + 0.008, 0.06));
     const crayonRestQ = mount.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0)));
 
@@ -195,15 +229,19 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     let tonearmHolder: Grabber | null = null;
     // Controller pointer-ray targets (Phase E): RESET / CLEAR / gramophone.
     const rayCaster = new THREE.Raycaster();
-    const rayTarget = (g: Grabber): { kind: "button"; b: PokeButton; d: number } | { kind: "gramophone"; d: number } | null => {
+    const rayTarget = (
+      g: Grabber,
+    ): { kind: "button"; b: PokeButton; d: number } | { kind: "gramophone"; d: number } | { kind: "target"; t: Target; d: number } | null => {
       const r = hands.pointerRay(g);
       if (!r) return null;
       rayCaster.ray.copy(r);
       rayCaster.far = 4;
-      const hit = rayCaster.intersectObjects([...buttons.map((b) => b.mesh), gramophone.group], true)[0];
+      const hit = rayCaster.intersectObjects([...buttons.map((b) => b.mesh), gramophone.group, ...targets.map((t) => t.group)], true)[0];
       if (!hit) return null;
       const b = buttons.find((x) => x.mesh === hit.object);
-      return b ? { kind: "button", b, d: hit.distance } : { kind: "gramophone", d: hit.distance };
+      if (b) return { kind: "button", b, d: hit.distance };
+      const t = targetOf(hit.object);
+      return t ? { kind: "target", t, d: hit.distance } : { kind: "gramophone", d: hit.distance };
     };
     const hands = new HandInput({
       renderer,
@@ -212,7 +250,15 @@ export function PuzzleScene(props: PuzzleSceneProps) {
         if (crayon.tryGrab(g)) return;
         if (!tonearmHolder && gramophone.tryGrab(g.point)) {
           tonearmHolder = g;
+          roomAudio.play("tonearm-grab");
           propsRef.current.onTonearmHolder(g.label);
+          hands.pulse(g, 0.4, 40);
+          return;
+        }
+        // A pinch on an object with a pinch puzzle.
+        const pt = targets.find((t) => t.box.clone().expandByScalar(0.05).containsPoint(g.point));
+        if (pt) {
+          fireTarget(pt, "pinch");
           hands.pulse(g, 0.4, 40);
           return;
         }
@@ -220,6 +266,9 @@ export function PuzzleScene(props: PuzzleSceneProps) {
         const hit = rayTarget(g);
         if (hit?.kind === "button") {
           pressButton(hit.b, `controller ray (${g.label})`);
+          hands.pulse(g, 0.5, 40);
+        } else if (hit?.kind === "target") {
+          fireTarget(hit.t, "click");
           hands.pulse(g, 0.5, 40);
         } else if (hit?.kind === "gramophone") {
           gramophone.toggle();
@@ -256,12 +305,14 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const r = el.getBoundingClientRect();
       ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
       raycaster.setFromCamera(ndc, camera);
-      const targets: THREE.Object3D[] = [board.mesh, gramophone.group, ...buttons.map((b) => b.mesh)];
-      const hit = raycaster.intersectObjects(targets, true)[0];
+      const pickables: THREE.Object3D[] = [board.mesh, gramophone.group, ...buttons.map((b) => b.mesh), ...targets.map((t) => t.group)];
+      const hit = raycaster.intersectObjects(pickables, true)[0];
       if (!hit) return null;
       if (hit.object === board.mesh && hit.uv) return { kind: "board" as const, p: board.uvToBoard(hit.uv) };
       const b = buttons.find((x) => x.mesh === hit.object);
       if (b) return { kind: "button" as const, b };
+      const t = targetOf(hit.object);
+      if (t) return { kind: "target" as const, t };
       return { kind: "gramophone" as const };
     };
     let mouseDrawing = false;
@@ -274,6 +325,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
         el.setPointerCapture(ev.pointerId);
         crayon.mouseBegin(h.p);
       } else if (h.kind === "button") pressButton(h.b, "desktop mouse");
+      else if (h.kind === "target") fireTarget(h.t, "click");
       else gramophone.toggle();
     };
     const onMove = (ev: PointerEvent) => {
@@ -316,6 +368,13 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       headWorldAt: (deg: number) => gramophone.headWorldAt(deg),
       soundOn: () => gramophone.playing,
       buttonWorld: (id: string) => buttons.find((b) => b.id === id)?.mesh.getWorldPosition(new THREE.Vector3()).toArray() ?? null,
+      /** Puzzle target objects (touch / pinch) and where they are on screen (desktop). */
+      targets: () =>
+        targets.map((t) => {
+          const c = t.box.getCenter(new THREE.Vector3()).project(camera);
+          const r = renderer.domElement.getBoundingClientRect();
+          return { id: t.id, screen: [r.left + ((c.x + 1) / 2) * r.width, r.top + ((1 - c.y) / 2) * r.height], onScreen: Math.abs(c.x) < 1 && Math.abs(c.y) < 1 && c.z < 1 };
+        }),
       strokes: () => board.strokes.map((s) => s.length),
       crayonHolder: () => crayon.holderLabel,
       tonearmHolder: () => tonearmHolder?.label ?? null,
@@ -413,6 +472,16 @@ export function PuzzleScene(props: PuzzleSceneProps) {
           } else if (!b.armed && near > POKE_REARM) b.armed = true;
         }
       }
+      if (renderer.xr.isPresenting) {
+        for (const t of targets) {
+          const zone = t.box.clone().expandByScalar(0.02);
+          const inside = hands.grabbers.some((g) => g.tracked && zone.containsPoint(g.poke));
+          if (inside && t.armed) {
+            t.armed = false;
+            fireTarget(t, "touch");
+          } else if (!inside) t.armed = true;
+        }
+      }
       for (const b of buttons) {
         const pressed = now < b.flashUntil;
         b.mat.emissive.setHex(pressed ? 0x666666 : 0x000000);
@@ -425,6 +494,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       if (!renderer.xr.isPresenting) camera.rotation.set(pitch, yaw, 0, "YXZ");
       monitor.tick(now);
       renderer.render(scene, camera);
+      roomAudio.tick(camera, gramophone.group);
     });
 
     const ro = new ResizeObserver(() => {

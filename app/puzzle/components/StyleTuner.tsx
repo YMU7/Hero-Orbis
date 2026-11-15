@@ -7,7 +7,8 @@ import { DEFAULT_GRADE, GRADE_LIMITS, STYLE_PRESETS, defaultStyle, parseStyle, t
 
 // Style tuner for the Orbis painting.
 //   - Colour grade sliders: display only, applied every frame, no credit.
-//   - Prompt parts: style / character / setting / camera / the two actions.
+//   - Prompt parts: style / character / setting / camera (the actions live on
+//     scene objects: painting + puzzle components in /editor?scene=puzzle).
 //     "Apply to live picture" saves AND re-sends the current beat's prompt on
 //     the same session (the picture morphs at the next chunk).
 //   - "Save" writes data/puzzle-style.json (+ history); every later run
@@ -18,8 +19,6 @@ const PROMPT_FIELDS: Array<{ key: keyof PromptParts; label: string; rows: number
   { key: "identity", label: "Character (face, hair, outfit)", rows: 5 },
   { key: "setting", label: "Background / setting", rows: 3 },
   { key: "camera", label: "Camera", rows: 2 },
-  { key: "urging", label: "Action: urging (initial)", rows: 4 },
-  { key: "happy", label: "Action: happy (after the sword)", rows: 3 },
 ];
 
 export function StyleTuner(p: { live: boolean; onApplyLive: () => Promise<{ ok: boolean; reason?: string }> }) {
@@ -37,6 +36,7 @@ export function StyleTuner(p: { live: boolean; onApplyLive: () => Promise<{ ok: 
   };
   const setGrade = (k: keyof PaintGrade, v: number) => update({ ...style, grade: { ...style.grade, [k]: v } });
   const setPrompt = (k: keyof PromptParts, v: string) => update({ ...style, prompt: { ...style.prompt, [k]: v } });
+
 
   const save = async (): Promise<boolean> => {
     setStatus("saving…");

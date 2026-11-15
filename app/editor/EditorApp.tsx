@@ -7,6 +7,8 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import { applyTransform, createInstance, fetchScene, readTransform, type BuiltinResolver } from "../lib/sceneData/environment";
 import { DEFAULT_SCENE_ID, SCENE_VERSION, type SceneDoc, type SceneObject, type Vec3 } from "../lib/sceneData/types";
 import { MVP_RUNTIME_LAYOUT } from "../mvp/components/XRScene";
+import { ObjectComponents, RoomAudioSettings, type ComponentItem } from "./PuzzleSettings";
+import { checkPuzzles } from "../lib/sceneData/components";
 import {
   addRoomLights,
   buildBuiltinPreview,
@@ -29,7 +31,8 @@ import {
 // timestamped backups.
 
 type Mode = "translate" | "rotate" | "scale";
-type Item = { id: string; name: string; asset: string };
+/** Hierarchy entry; components (puzzle / painting) travel with it. */
+type Item = ComponentItem;
 type AssetInfo = { file: string; url: string; bytes: number };
 
 const AUTOSAVE_MS = 700;
@@ -311,7 +314,7 @@ export function EditorApp() {
           env.add(g);
           objects.set(list[i].id, g);
         });
-        setItems(list.map((o) => ({ id: o.id, name: o.name, asset: o.asset })));
+        setItems(list.map((o) => ({ id: o.id, name: o.name, asset: o.asset, puzzle: o.puzzle, painting: o.painting })));
         setSavedAt(doc.savedAt ?? null);
         baseSavedAt.current = doc.savedAt ?? null;
         const note = doc.objects.length === 0 && list.length > 0 ? " — default layout, saved on first change" : "";
@@ -360,7 +363,9 @@ export function EditorApp() {
     const t = three.current!;
     const objects: SceneObject[] = itemsRef.current.flatMap((it) => {
       const g = t.objects.get(it.id);
-      return g ? [{ id: it.id, name: it.name, asset: it.asset, ...readTransform(g) }] : [];
+      return g
+        ? [{ id: it.id, name: it.name, asset: it.asset, ...readTransform(g), ...(it.puzzle ? { puzzle: it.puzzle } : {}), ...(it.painting ? { painting: it.painting } : {}) }]
+        : [];
     });
     return { version: SCENE_VERSION, objects };
   }, []);
@@ -492,6 +497,21 @@ export function EditorApp() {
     [markDirty],
   );
 
+  const setComponents = useCallback(
+    (id: string, patch: Partial<Pick<Item, "puzzle" | "painting">>) => {
+      setItems((xs) =>
+        xs.map((x) => {
+          if (x.id !== id) return x;
+          const next = { ...x, ...patch };
+          if ("puzzle" in patch && !patch.puzzle) delete next.puzzle;
+          return next;
+        }),
+      );
+      markDirty();
+    },
+    [markDirty],
+  );
+
   const rename = useCallback(
     (id: string, name: string) => {
       setItems((xs) => xs.map((x) => (x.id === id ? { ...x, name } : x)));
@@ -595,11 +615,22 @@ export function EditorApp() {
                 >
                   {it.name}
                   {profileFor(sid).required?.(it.asset) && <span className="ml-1 text-[10px] text-amber-400">●</span>}
+                  {it.puzzle && (
+                    <span className="ml-1 rounded bg-violet-800 px-1 text-[9px] text-violet-100" title={`puzzle "${it.puzzle.id}"`}>
+                      puzzle
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
           </ul>
           <p className="mt-2 text-[10px] text-zinc-600">{profileFor(sid).lockedNote}</p>
+          {sid === "puzzle" &&
+            checkPuzzles(items).map((m) => (
+              <p key={m} className="mt-1 text-[10px] text-red-400">
+                ⚠ {m}
+              </p>
+            ))}
         </section>
         {profileFor(sid).palette && (
           <section>
@@ -654,7 +685,7 @@ export function EditorApp() {
       </main>
 
       {/* Inspector */}
-      <aside className="w-72 shrink-0 overflow-y-auto border-l border-zinc-800 p-3 text-xs">
+      <aside className={`${sid === "puzzle" ? "w-80" : "w-72"} shrink-0 overflow-y-auto border-l border-zinc-800 p-3 text-xs`}>
         <h2 className="mb-2 uppercase tracking-wider text-zinc-500">Inspector</h2>
         {!sel || !tr ? (
           <p className="text-zinc-600">Select an object.</p>
@@ -697,7 +728,16 @@ export function EditorApp() {
                 Delete
               </button>
             </div>
+            {sid === "puzzle" && <ObjectComponents item={sel} items={items} onChange={(patch) => setComponents(sel.id, patch)} />}
           </div>
+        )}
+        {sid === "puzzle" && (
+          <details className="mt-6 border-t border-zinc-800 pt-3">
+            <summary className="cursor-pointer uppercase tracking-wider text-zinc-500">Room audio</summary>
+            <div className="mt-2">
+              <RoomAudioSettings />
+            </div>
+          </details>
         )}
         <div className="mt-6 border-t border-zinc-800 pt-3">
           <button onClick={() => void save()} className={`${btn} bg-sky-700`}>
