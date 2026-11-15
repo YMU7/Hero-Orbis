@@ -453,7 +453,7 @@ export function buildPainting() {
   group.add(paintMesh);
   const hint = makeCanvasTex(1024, 96);
   const hintMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * (96 / 1024)), new THREE.MeshBasicMaterial({ map: hint.tex, toneMapped: false }));
-  hintMesh.position.set(0, -PAINT_H / 2 - 0.37, 0.02); // below the ornate frame
+  hintMesh.position.set(0, -PAINT_H / 2 - 0.47, 0.02); // below the frame and clear of the mute seal (painting y −0.82, r ≈ 0.2)
   group.add(hintMesh);
   const hud = makeCanvasTex(1024, 200);
   const hudMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8 * (200 / 1024)), new THREE.MeshBasicMaterial({ map: hud.tex, toneMapped: false }));

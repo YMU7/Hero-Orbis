@@ -1,6 +1,8 @@
 import { RescueRoom } from './rescueRoom';
 import type { RescueBeat } from './rescueScript';
 import * as THREE from "three";
+import { copyDrawing, makeDrawnSword, disposeSketch } from "./drawnSword";
+import type { Stroke } from "./swordRecognizer";
 import type { Grabber } from "./handInput";
 import { ToolPhysics, type PhysicalTool } from "./toolPhysics";
 import type { DrawingBoard } from "./drawingBoard";
@@ -56,17 +58,24 @@ export class UnityRoom {
   private readonly shards: Array<{ mesh: THREE.Mesh; v: THREE.Vector3; life: number }> = [];
   private activated = false;
   private rewarded = false;
+  drawing: Stroke[] = [];
+  private sketch: THREE.Group | null = null;
+  private peelAge = -1;
   private audio: AudioContext | null = null;
   private ambience: AudioBufferSourceNode | null = null;
   private readonly previousHead = new THREE.Vector3();
   private hasHead = false;
   private sealTime = 0;
   private readonly sealMat = mat(0xdf333e);
+  /** Green mic shows through the red seal (a "muted" icon) and lights up once freed. */
+  private readonly micMat = new THREE.MeshStandardMaterial({ color: 0x58dda0, roughness: 0.35, emissive: 0x2fbf7a, emissiveIntensity: 0.25 });
+  /** Hammer head pulses gold in time with the seal: "this tool, that target". */
+  private readonly hammerHeadMat = mat(0xaab5c2, 0.8);
 
   constructor(readonly physics: ToolPhysics, painting: THREE.Group, private board: DrawingBoard, private onSound: (on: boolean) => void, onBeat: (beat: RescueBeat) => void | Promise<void> = () => {}) {
     const hammer = new THREE.Group(); hammer.name = "hammer";
     box(hammer, [0.035, 0.035, 0.32], [0, 0, -0.12], mat(0x8a5520));
-    box(hammer, [0.20, 0.10, 0.10], [0, 0, -0.31], mat(0xaab5c2, 0.8));
+    box(hammer, [0.20, 0.10, 0.10], [0, 0, -0.31], this.hammerHeadMat);
     painting.updateWorldMatrix(true, false);
     const rack = new THREE.Group(); rack.name = "tool-rack";
     rack.position.copy(painting.localToWorld(new THREE.Vector3(1.72, 0, 0.08)));
@@ -95,18 +104,17 @@ export class UnityRoom {
     this.mute.position.copy(painting.localToWorld(new THREE.Vector3(0, -0.82, 0.12)));
     this.mute.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion()));
     this.group.add(this.mute);
+    // Red "no" ring + slash sits in front of the mic, so the pair reads as a muted-mic icon.
+    this.red.position.z = 0.045;
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 8, 40), this.sealMat);
     this.red.add(ring);
-    const slash = box(this.red, [0.38, 0.025, 0.03], [0, 0, 0.025], this.sealMat);
+    const slash = box(this.red, [0.38, 0.025, 0.03], [0, 0, 0], this.sealMat);
     slash.rotation.z = -Math.PI / 4;
-    const mic = box(this.active, [0.055, 0.11, 0.035], [0, 0.025, 0], mat(0x58dda0));
-    // Rounded microphone mesh.
-    this.active.remove(mic); mic.geometry.dispose();
-    const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.06, 4, 8), mic.material);
-    capsule.position.copy(mic.position); this.active.add(capsule);
-    box(this.active, [0.015, 0.09, 0.02], [0, -0.06, 0], mat(0x58dda0));
-    box(this.active, [0.10, 0.015, 0.025], [0, -0.1, 0], mat(0x58dda0));
-    this.mute.add(this.red, this.active); this.active.visible = false;
+    const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.07, 4, 8), this.micMat);
+    capsule.position.set(0, 0.03, 0); this.active.add(capsule);
+    box(this.active, [0.016, 0.07, 0.02], [0, -0.06, 0], this.micMat);
+    box(this.active, [0.11, 0.016, 0.025], [0, -0.1, 0], this.micMat);
+    this.mute.add(this.red, this.active);
     this.rescue = new RescueRoom(physics, painting, board, this, onBeat); this.group.add(this.rescue.group);
   }
   tryGrab(g: Grabber, ray: THREE.Ray | null) {
@@ -122,7 +130,8 @@ export class UnityRoom {
   }
   private activate() {
     if (this.activated) return;
-    this.activated = true; this.red.visible = false; this.active.visible = true; this.red.scale.setScalar(1);
+    this.activated = true; this.red.visible = false; this.red.scale.setScalar(1);
+    this.micMat.emissiveIntensity = 1.2; this.hammerHeadMat.emissiveIntensity = 0;
     this.rescue.hooks.haptic(this.hammer.holder, 1, 120);
     this.onSound(true); this.sound(); this.rescue.unmute();
     for (let i = 0; i < 28; i++) {
@@ -152,9 +161,25 @@ export class UnityRoom {
   }
   spawnReward() {
     if(this.rewarded)return;
-    this.rewarded=true;this.reward.object.visible=true;this.reward.body.setEnabled(true);this.reward.drop(new THREE.Vector3(0,0,.4));
+    this.drawing=copyDrawing(this.board.strokes);
+    this.sketch=makeDrawnSword(this.drawing);
+    for(const child of this.reward.object.children)if(child!==this.reward.highlight)child.visible=false;
+    this.reward.object.add(this.sketch);
+    this.rewarded=true;this.reward.object.visible=true;this.reward.body.setEnabled(true);
+    this.peelAge=0;
+    if(this.board.mesh){
+      const facing=this.board.mesh.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1),new THREE.Vector3(0,1,0)));
+      this.reward.body.setRotation(facing,true);
+    }
+    this.reward.body.setTranslation(this.board.boardToWorld({x:0,y:0},.025),true);this.reward.sync();
   }
   update(dt: number) {
+    if(this.peelAge>=0){
+      this.peelAge+=dt;
+      if(this.reward.holder){this.peelAge=-1;}
+      else if(this.peelAge<.7){const k=this.peelAge/.7;this.reward.body.setTranslation(this.board.boardToWorld({x:0,y:0},.025+.3*(1-(1-k)**3)),true);this.reward.sync();}
+      else {this.peelAge=-1;this.reward.drop(new THREE.Vector3(0,0,.15));}
+    }
     this.rescue.update(dt);
     const head = this.hammer.object.localToWorld(new THREE.Vector3(0, 0, -0.31));
     const target = this.mute.getWorldPosition(new THREE.Vector3());
@@ -169,6 +194,8 @@ export class UnityRoom {
       this.red.scale.setScalar(1 + 0.07 * beat);
       this.sealMat.emissive.setHex(0xff2030);
       this.sealMat.emissiveIntensity = 0.15 + 0.6 * beat;
+      this.hammerHeadMat.emissive.setHex(0xffc040);
+      this.hammerHeadMat.emissiveIntensity = this.hammer.holder ? 0 : 0.5 * beat;
     }
     for (let i = this.shards.length - 1; i >= 0; i--) {
       const s = this.shards[i]; s.life -= dt; s.v.y -= 9.81 * dt;
@@ -178,8 +205,9 @@ export class UnityRoom {
   }
   reset() {
     this.rescue.reset();
+    this.peelAge=-1;this.drawing=[];if(this.sketch){disposeSketch(this.sketch);this.sketch=null;}
     this.activated = this.rewarded = this.hasHead = false;
-    this.red.visible = true; this.active.visible = false;
+    this.red.visible = true; this.micMat.emissiveIntensity = 0.25;
     this.reward.object.visible = false; this.reward.body.setEnabled(false);
     this.ambience?.stop(); this.ambience = null; this.onSound(false);
     for (const s of this.shards) { this.group.remove(s.mesh); s.mesh.geometry.dispose(); (s.mesh.material as THREE.Material).dispose(); }

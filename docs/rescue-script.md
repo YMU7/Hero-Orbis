@@ -4,12 +4,18 @@ The room layout remains editor-authored. Rescue mechanics and progression live i
 `app/puzzle/lib/rescueRoom.ts`; story lines and Orbis cues are in
 `rescueDialogue.json`; idle hints and reaction quips are in `rescueBarks.json`.
 
-Sequence: hammer seal → grab rack sword and let it melt → draw a recognizable
-sword → touch rope with the new sword → the princess conjures a fireball, which
-floats out of the canvas → catch it and touch the rope ("Wow that actually
-worked") → box falls and shatters → touch key to painting (it bounces back) →
-photograph key → put photo into painting → fanfare, confetti, final line, end card
-with the rescue time (measured from breaking the silence).
+Sequence: hammer seal → draw a sword (optionally try the melting rack sword first)
+→ the player's actual strokes peel off the easel as a solid crayon sword → touch
+the rope with the sword → the princess conjures a fireball and sends it out of
+the painting → catch/throw it at the rope OR ignite the drawn sword with it and
+touch the rope with the flaming blade → box falls and shatters → photograph the
+freed key (trying the physical key against the painting is optional) → put the
+photo into the painting → key travels to a turning lock and gold cracks spread
+→ princess asks for a hand → after her line finishes, touch the glowing handprint
+with a hand/controller (or click it on desktop) → canvas washes into light, a
+crown tumbles out, and the painting displays the player's frozen drawing in the
+Royal Gallery → cheeky final line from the right, confetti and the existing timed
+end card. The timer still starts when the silence breaks.
 
 ## Syncing the room with Orbis (~2 s delay)
 
@@ -28,16 +34,17 @@ that delay instead of fighting it:
 - **Shimmer covers the gap.** While a cue is in flight the painting ripples like
   wet paint with drifting gold glints (`paintingFx` in `roomParts.ts`), so the
   delay reads as magic rather than lag. Mock mode shows a 1.6 s shimmer.
-- Voice lines start immediately at the action; nothing waits on a video chunk
-  except the fireball's emergence.
+- Story speech waits for the existing shimmer/settle gate. Fireball emergence and
+  the final hand interaction also wait for the actual queued voice completion.
+  Reset invalidates both pending continuations.
 
 ## Hints and quips
 
 - Per stage, two spoken hints play at 25 s and 55 s without progress (reset by
-  any drawing attempt). The silent opening gets a plaque nudge at 20 s.
+  any drawing attempt). The silent opening retains its existing plaque nudges.
 - Bad drawings (only while she is waiting for a drawn sword) get a quip after the
-  usual 2.5 s pause, at most every 8 s. Drawing a sword before trying the rack
-  sword gets the `early-draw` line. Reaching for the hanging box gets `box-poke`.
+  usual 2.5 s pause, at most every 8 s. Drawing before trying the rack sword
+  succeeds directly. Reaching for the hanging box gets `box-poke`.
 - Barks never interrupt: they are dropped (and hints retried) while she talks.
 - The subtitle clears 2.5 s after the last line; the plaque then shows the
   current objective.
@@ -64,3 +71,23 @@ TypeScript. In mock mode in the browser: subtitle clearing, stage objectives,
 idle hints, and the shimmer were checked. Live Orbis cue wording and timing, and
 physical headset interaction (haptics, camera flash, end card), still require an
 on-device playthrough.
+
+## 2026-11-15 puzzle and ending update
+
+- Recognition waits until the pen is up and the artwork is unchanged for 0.65 s.
+  The accepted strokes are copied, normalized into a forgiving fixed sword collider,
+  and rendered as thick crayon geometry. Erasing the board preserves the reward
+  and the ending artwork. The sword peels forward for 0.7 s; it can be grabbed early.
+- Flame transfer works with a floating or held fireball. A caught and thrown ball
+  uses swept contact to avoid passing through the rope between frames.
+- Early photography earns a queued special line; the rejection is not required.
+- Local lock, handprint, crown and gallery effects do not require exact model timing.
+  The finale is staged in rescueFinale.ts, with a new helping stage before escaped.
+- Generated with the existing Qwen VoiceDesign profile and seed 42. Clip durations:
+  unmuted 26.0 s; rope 11.5 s; helping 7.1 s; clever-photo 4.2 s; escaped 11.1 s;
+  hint-rope-2 3.8 s; hint-helping-1 3.4 s; hint-helping-2 3.8 s.
+  Per-clip JSON sidecars record the exact text, voice profile and measured duration.
+- Validation: TypeScript and 12 physics/interaction tests pass. New tests cover
+  snapshot preservation, flaming sword, thrown fireball, early photography, final
+  voice gating and reset cancellation. Browser visual verification was blocked by
+  the Windows computer-use tool; live Orbis and physical Quest testing remain pending.

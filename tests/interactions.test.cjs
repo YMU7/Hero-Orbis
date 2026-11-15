@@ -50,7 +50,7 @@ test('rescue follows player actions, rejects shortcuts, and resets every prop', 
   room.desktopStrike();assert.equal(r.stage,'unmuted');assert.deepEqual(sounds,[true]);
   grab(room.wallSword);room.update(1.99);assert.equal(r.stage,'unmuted');room.update(.02);assert.equal(r.stage,'melted');assert.equal(room.wallSword.holder,null);
   const line=(ax,ay,bx,by)=>Array.from({length:31},(_,i)=>({x:ax+(bx-ax)*i/30,y:ay+(by-ay)*i/30}));
-  board.strokes=[line(0,-.15,0,.15),line(-.05,-.1,.05,-.1)];room.update(.01);assert.equal(r.stage,'drawn');assert.equal(room.reward.object.visible,true);
+  board.strokes=[line(0,-.15,0,.15),line(-.05,-.1,.05,-.1)];room.update(.01);room.update(.66);assert.equal(r.stage,'drawn');assert.equal(room.reward.object.visible,true);
   const lensDirection=new THREE.Vector3(0,0,-1).applyQuaternion(r.camera.object.quaternion);
   assert.ok(lensDirection.z>.99,'camera lens faces the player by default');
   grab(room.reward);move(room.reward,r.rope.position.clone().add(new THREE.Vector3(0,0,.45)));room.update(.01);
@@ -66,8 +66,9 @@ test('rescue follows player actions, rejects shortcuts, and resets every prop', 
   assert.equal(r.stage,'key');assert.equal(r.glass.visible,false);assert.equal(r.canGrab(r.key),true);
   grab(r.key);move(r.key,painting.localToWorld(new THREE.Vector3(0,0,.1)));room.update(.01);assert.equal(r.stage,'rejected');assert.equal(r.key.holder,null);
   grab(r.camera);move(r.camera,new THREE.Vector3(0,1,1));move(r.key,new THREE.Vector3(.3,1,0));assert.equal(r.shoot(),true,'generous camera hitbox');assert.equal(r.stage,'photo');assert.equal(r.shoot(),false,'no duplicate photo');
-  grab(r.photo);move(r.photo,painting.localToWorld(new THREE.Vector3(0,0,.1)));room.update(.01);assert.equal(r.stage,'escaped');assert.equal(r.photo.object.visible,false);
-  assert.deepEqual(events,['unmuted','melted','drawn','rope','released','fire','key','rejected','photo','escaped']);
+  grab(r.photo);move(r.photo,painting.localToWorld(new THREE.Vector3(0,0,.1)));room.update(.01);assert.equal(r.stage,'helping');assert.equal(r.photo.object.visible,false);
+  assert.equal(r.touchFinale(r.finale.hand.getWorldPosition(new THREE.Vector3())),true);assert.equal(r.stage,'escaped');
+  assert.deepEqual(events,['unmuted','melted','drawn','rope','released','fire','key','rejected','photo','helping','escaped']);
   assert.ok(r.rescueSeconds!==null&&r.rescueSeconds>0,'rescue time measured from breaking the silence');
   physics.reset();room.reset();assert.equal(r.stage,'silence');assert.equal(r.glass.visible,true);assert.equal(r.rope.visible,true);assert.equal(r.fire.object.visible,false);assert.equal(room.reward.object.visible,false);
   assert.ok(new THREE.Vector3(0,0,-1).applyQuaternion(r.camera.object.quaternion).z>.99,'reset keeps camera facing player');
@@ -199,4 +200,64 @@ test('smooth turn is frame-rate independent, respects the dead zone, and pivots 
   assert.ok(Math.abs(simulate(60, 1) - simulate(90, 1)) < 1e-6);
   assert.equal(simulate(90, 0.1), 0, 'stick drift does not turn');
   delete global.window;
+});
+
+test('drawn artwork waits for pen-up, survives erasing, and resets cleanly', async () => {
+ await initToolPhysics();const physics=new ToolPhysics(),painting=new THREE.Group();
+ const board={drawing:true,strokes:[[{x:0,y:-.15},{x:.02,y:0},{x:0,y:.15}]],boardToWorld:()=>new THREE.Vector3(0,1.3,0)};
+ const room=new UnityRoom(physics,painting,board,()=>{});
+ try {
+  room.rescue.unmute();room.update(1);room.update(1);assert.equal(room.reward.object.visible,false,'never materializes mid-stroke');
+  board.drawing=false;room.update(.7);assert.equal(room.rescue.stage,'drawn');
+  const sketch=room.reward.object.getObjectByName('player-drawn-sword');assert.ok(sketch.children.length>0,'actual strokes create geometry');
+  const accepted=JSON.stringify(room.drawing);board.strokes[0][1].x=8;board.strokes.length=0;
+  assert.equal(JSON.stringify(room.drawing),accepted,'reward is a deep snapshot');
+  room.reset();assert.equal(room.reward.object.getObjectByName('player-drawn-sword'),undefined);assert.deepEqual(room.drawing,[]);
+ } finally {room.dispose();physics.dispose();}
+});
+
+test('fireball can ignite the drawn sword and the burning blade frees the key', async () => {
+ await initToolPhysics();const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
+ const board={strokes:[[{x:0,y:-.15},{x:0,y:.15}]],boardToWorld:()=>new THREE.Vector3(0,1.3,0)};
+ const room=new UnityRoom(physics,painting,board,()=>{});const r=room.rescue;
+ try {
+  room.spawnReward();r.stage='rope';r.spawnFire();room.update(1);
+  const g=grabber(room.reward.object.position);room.reward.tryGrab(g);
+  const fire=r.fire.object.position.clone();
+  room.reward.body.setTranslation(fire.add(new THREE.Vector3(0,0,.4)),true);room.reward.body.setRotation(new THREE.Quaternion(),true);room.reward.sync();
+  room.update(.001);assert.equal(r.swordLit,true);assert.equal(r.fire.object.visible,false);assert.equal(r.stage,'rope');
+  room.reward.body.setTranslation(r.rope.position.clone().add(new THREE.Vector3(0,0,.4)),true);room.reward.sync();room.update(.01);
+  assert.equal(r.stage,'fire');assert.equal(r.rope.visible,false);
+  room.reset();assert.equal(r.swordLit,false);
+ } finally {room.dispose();physics.dispose();}
+});
+
+test('a thrown fireball crosses the rope without needing to stay held', async () => {
+ await initToolPhysics();const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
+ const board={strokes:[],boardToWorld:()=>new THREE.Vector3(0,1.3,0)};
+ const room=new UnityRoom(physics,painting,board,()=>{}),r=room.rescue;
+ try {
+  r.stage='rope';r.spawnFire();room.update(1);
+  const g=grabber(r.fire.object.position);r.fire.tryGrab(g);room.update(.01);r.fire.release(g,false);
+  r.fire.body.setTranslation(r.rope.position.clone().add(new THREE.Vector3(-.4,0,0)),true);r.fire.sync();room.update(.01);
+  r.fire.body.setTranslation(r.rope.position.clone().add(new THREE.Vector3(.4,0,0)),true);r.fire.sync();room.update(.01);
+  assert.equal(r.stage,'fire','swept collision accepts the crossing');
+ } finally {room.dispose();physics.dispose();}
+});
+
+test('early key photo succeeds and final hand touch waits for speech; reset cancels it', async () => {
+ await initToolPhysics();const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
+ const board={strokes:[],boardToWorld:()=>new THREE.Vector3(0,1.3,0)};
+ const events=[];let finish;
+ const room=new UnityRoom(physics,painting,board,()=>{},b=>{events.push(b.id);if(b.id==='helping')return new Promise(resolve=>finish=resolve);}),r=room.rescue;
+ const photoContact=()=>{const g=grabber(r.photo.object.position);assert.equal(r.photo.tryGrab(g),true);r.photo.body.setTranslation(painting.localToWorld(new THREE.Vector3(0,0,.1)),true);r.photo.sync();room.update(.01);};
+ try {
+  r.stage='key';const g=grabber(r.camera.object.position);r.camera.tryGrab(g);
+  r.camera.body.setTranslation({x:0,y:1,z:1},true);r.camera.body.setRotation(new THREE.Quaternion(),true);r.camera.sync();r.key.body.setTranslation({x:0,y:1,z:0},true);r.key.sync();
+  assert.equal(r.shoot(),true);assert.equal(r.stage,'photo');assert.ok(events.includes('clever-photo'));assert.equal(events.includes('rejected'),false);
+  photoContact();assert.equal(r.stage,'helping');assert.equal(r.touchFinale(r.finale.hand.getWorldPosition(new THREE.Vector3())),false);
+  finish();await Promise.resolve();assert.equal(r.touchFinale(r.finale.hand.getWorldPosition(new THREE.Vector3())),true);assert.equal(r.stage,'escaped');
+  room.reset();r.stage='photo';r.photo.object.visible=true;r.photo.body.setEnabled(true);photoContact();
+  room.reset();finish();await Promise.resolve();assert.equal(r.finale.touchable,false);assert.equal(r.stage,'silence');
+ } finally {room.dispose();physics.dispose();}
 });

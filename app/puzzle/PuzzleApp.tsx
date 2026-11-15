@@ -65,11 +65,14 @@ const PLACEHOLDER: Record<string, string[]> = {
 
 type Bark = { id: string; kind: string; stage?: string; text: string };
 const BARKS: Bark[] = barks;
-const STAGES = ['silence','unmuted','melted','drawn','rope','fire','key','rejected','photo','escaped'] as const satisfies readonly RescueStage[];
+const STAGES = ['silence','unmuted','melted','drawn','rope','fire','key','rejected','photo','helping','escaped'] as const satisfies readonly RescueStage[];
 /** Spoken hints after this long in one stage without progress (ms). */
 const HINT_DELAYS_MS = [25_000, 55_000];
-/** The silent opening has no voice: a plaque nudge instead. */
-const SILENCE_NUDGE_MS = 20_000;
+/** The silent opening has no voice: plaque nudges instead, gentle then blunt. */
+const SILENCE_NUDGES: Array<[ms: number, text: string]> = [
+  [10_000, "Her voice is locked behind that red seal… it looks fragile."],
+  [25_000, "Grab the glowing hammer and smash the red seal!"],
+];
 /** Keep the subtitle up briefly after a line ends. */
 const SUBTITLE_HOLD_MS = 2500;
 /** After `morphing` clears, the scene eases the shimmer out (rate 1.6/s). */
@@ -80,7 +83,7 @@ const QUIP_GAP_MS = 8000;
 const QUIPS = ['quip-baguette', 'quip-butter', 'quip-witch'];
 /** What the plaque under the painting says when nobody is talking. */
 const OBJECTIVE: Record<RescueStage, string> = {
-  silence: 'She is trying to speak… break the silence.',
+  silence: 'She has been silenced! Break the silence, hero.',
   unmuted: 'Draw your sword, hero!',
   melted: 'There must be another way to draw a sword…',
   drawn: 'Free the key from the box.',
@@ -89,6 +92,7 @@ const OBJECTIVE: Record<RescueStage, string> = {
   key: 'Get the key into the picture.',
   rejected: 'Get the key into the picture… somehow.',
   photo: 'Bring the photograph to the painting.',
+  helping: 'Give her a hand — touch the glowing handprint.',
   escaped: 'The princess is free!',
 };
 
@@ -148,7 +152,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       setSubtitle(text);
       // Preloaded WebAudio buffer (no media pipeline at the beat); <audio> only
       // before the audio context is unlocked.
-      const v=roomAudio.playVoice(id)??htmlVoice(id);voices.current.add(v);
+      const v=roomAudio.playVoice(id, id === 'escaped')??htmlVoice(id);voices.current.add(v);
       let done=false;
       const finish=()=>{
         if(done)return;done=true;
@@ -388,7 +392,11 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   useEffect(() => {
     const timers: Array<ReturnType<typeof setTimeout>> = [];
     if (stage === "silence") {
-      timers.push(setTimeout(() => flashHint("That red seal under the painting looks fragile… try the hammer.", 9000), SILENCE_NUDGE_MS));
+      // Each nudge stays up until the next one (the last one lingers).
+      SILENCE_NUDGES.forEach(([ms, text], i) => {
+        const hold = (SILENCE_NUDGES[i + 1]?.[0] ?? ms + 12_000) - ms;
+        timers.push(setTimeout(() => flashHint(text, hold), ms));
+      });
     }
     BARKS.filter((b) => b.kind === "hint" && b.stage === stage).forEach((h, i) => {
       const attempt = () => {
@@ -397,7 +405,12 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       };
       timers.push(setTimeout(attempt, HINT_DELAYS_MS[i] ?? HINT_DELAYS_MS[HINT_DELAYS_MS.length - 1] + 30_000 * i));
     });
-    return () => timers.forEach(clearTimeout);
+    return () => {
+      timers.forEach(clearTimeout);
+      // A seal nudge must not linger on the plaque once the silence is broken.
+      const h = puzzleStore.get().hint;
+      if (SILENCE_NUDGES.some(([, text]) => text === h)) puzzleStore.set({ hint: null });
+    };
   }, [stage, idleNonce, bark, flashHint]);
 
   // ── Puzzle components (Scene Editor "+ Puzzle") ──────────────────────

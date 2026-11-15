@@ -21,6 +21,11 @@ Tools/Speech/qwen/python/
 Tools/Speech/qwen/models/
 Tools/Speech/qwen/cache/
 
+# Local AI music software, dependencies, weights, and generated tracks
+/Tools/Music/stable-audio-3/
+/Tools/Music/cache/
+/Tools/Music/output/
+
 # Archived generated Unity data
 archive/**/Library/
 archive/**/Logs/

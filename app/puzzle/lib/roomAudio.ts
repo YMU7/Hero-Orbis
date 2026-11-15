@@ -111,10 +111,11 @@ class RoomAudio {
   }
 
   /** Play a voice clip; null when WebAudio isn't running (caller falls back). */
-  playVoice(id: string): { ended: Promise<void>; stop: () => void } | null {
+  playVoice(id: string, besidePlayer = false): { ended: Promise<void>; stop: () => void } | null {
     const c = this.ctx;
     if (!c || c.state !== "running" || !this.voiceOut) return null;
     let src: AudioBufferSourceNode | null = null;
+    let pan: StereoPannerNode | null = null;
     let stopped = false;
     let resolveEnd!: () => void;
     const ended = new Promise<void>((r) => (resolveEnd = r));
@@ -123,8 +124,9 @@ class RoomAudio {
       if (!buf) return resolveEnd();
       src = c.createBufferSource();
       src.buffer = buf;
-      src.connect(this.voiceOut!);
-      src.onended = () => resolveEnd();
+      if(besidePlayer){pan=c.createStereoPanner();pan.pan.value=.8;src.connect(pan);pan.connect(this.voiceOut!);}
+      else src.connect(this.voiceOut!);
+      src.onended = () => {src?.disconnect();pan?.disconnect();resolveEnd();};
       src.start();
     });
     return {
