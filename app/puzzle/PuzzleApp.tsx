@@ -72,6 +72,9 @@ const HINT_DELAYS_MS = [25_000, 55_000];
 const SILENCE_NUDGE_MS = 20_000;
 /** Keep the subtitle up briefly after a line ends. */
 const SUBTITLE_HOLD_MS = 2500;
+/** After `morphing` clears, the scene eases the shimmer out (rate 1.6/s). */
+const SHIMMER_FADE_MS = 1200;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** Minimum gap between "that's not a sword" quips. */
 const QUIP_GAP_MS = 8000;
 const QUIPS = ['quip-baguette', 'quip-butter', 'quip-witch'];
@@ -134,10 +137,12 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
     setSubtitle(''); for(const v of voices.current)v.stop(); voices.current.clear();
   },[]);
-  const speak=useCallback((id:string,text:string)=>{
+  /** Queue a line. `gate` holds it (in order, and counted as busy so barks
+   *  don't jump in) until e.g. the painting's shimmer has settled. */
+  const speak=useCallback((id:string,text:string,gate:Promise<unknown>=Promise.resolve())=>{
     const run=voiceRun.current;
     voiceBusy.current++;
-    const spoken=voiceQueue.current.then(()=>new Promise<void>(resolve=>{
+    const spoken=voiceQueue.current.then(()=>gate).then(()=>new Promise<void>(resolve=>{
       if(run!==voiceRun.current){resolve();return;}
       if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
       setSubtitle(text);
@@ -179,7 +184,9 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     const landed=puzzle.steerScript(beat);
     if((STAGES as readonly string[]).includes(beat.id)){const s=beat.id as RescueStage;stageRef.current=s;setStage(s);}
     if(beat.id==='unmuted')unmutedAt.current=Date.now();
-    const spoken=beat.text?speak(beat.id,beat.text):Promise.resolve();
+    // Her line waits for the shimmer: the morph lands, then the shader eases out.
+    const shimmerOver=puzzleStore.get().morphing?landed.then(()=>sleep(SHIMMER_FADE_MS)):Promise.resolve();
+    const spoken=beat.text?speak(beat.id,beat.text,shimmerOver):Promise.resolve();
     // The room waits for both the line and the picture (capped) before
     // the next physical effect, e.g. the fireball leaving the canvas.
     const done=Promise.all([spoken,landed]).then(()=>undefined);
@@ -567,7 +574,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             video={activeVideo}
             placeholderLines={PLACEHOLDER[ps.phase] ?? [ps.phase, ""]}
             hudLines={hudLines}
-            hintText={subtitle || hintText}
+            hintText={stage === "silence" ? subtitle || hintText : hintText}
             wrongFlashUntil={ps.wrongFlashUntil}
             swordFlashUntil={ps.swordFlashUntil}
             onStrokeEnd={onStrokeEnd}

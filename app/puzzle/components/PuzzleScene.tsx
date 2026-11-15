@@ -249,7 +249,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       if (isTargetPuzzle(o)) addTarget(o.id, g);
     }
     propsRef.current.onLayout(layout);
-    const crayonRest = mount.localToWorld(new THREE.Vector3(BOARD_W / 2 + 0.055, 0.08, 0.065));
+    const crayonRest = mount.localToWorld(new THREE.Vector3(BOARD_W / 2 + 0.065, 0.11, 0.065));
     const crayonRestQ = mount.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0)));
 
     const physics = new ToolPhysics();

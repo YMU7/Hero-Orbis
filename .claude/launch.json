@@ -14,6 +14,13 @@
       "runtimeArgs": ["node_modules/next/dist/bin/next", "dev", "-p", "3100"],
       "env": { "NEXT_TELEMETRY_DISABLED": "1", "BASIC_AUTH_USER": "", "BASIC_AUTH_PASS": "" },
       "port": 3100
+    },
+    {
+      "name": "dev-3200",
+      "runtimeExecutable": "C:\\Users\\zacya\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\bfa21d187eb00b05\\bin\\node.exe",
+      "runtimeArgs": ["node_modules/next/dist/bin/next", "dev", "-p", "3200"],
+      "env": { "NEXT_TELEMETRY_DISABLED": "1", "BASIC_AUTH_USER": "", "BASIC_AUTH_PASS": "" },
+      "port": 3200
     }
   ]
 }

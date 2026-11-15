@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { ArticulatedHand } from "./articulatedHand";
+import { ControllerGauntlet, HandGauntlet } from "./articulatedHand";
 
 // Hand-gesture input for the puzzle room (Meta Quest 3 hand tracking).
 //
@@ -19,7 +19,9 @@ import { ArticulatedHand } from "./articulatedHand";
 // renderer.xr.getHand(i). Controllers still work as a fallback: trigger OR
 // grip counts as a pinch, the point sits just in front of the grip.
 //
-// Hands use locally generated articulated glove meshes (no downloads).
+// Hands and controllers both show knight gauntlets generated in code (no
+// downloads): tracked hands drive every joint, controllers pose the fingers
+// from trigger / squeeze / thumb touch (see articulatedHand.ts).
 
 export type GrabberKind = "hand" | "controller" | "none";
 
@@ -44,7 +46,8 @@ type Slot = {
   ray: THREE.XRTargetRaySpace;
   grip: THREE.XRGripSpace;
   hand: THREE.XRHandSpace;
-  visual: ArticulatedHand;
+  visual: HandGauntlet;
+  ctrlVisual: ControllerGauntlet;
   mustOpen: boolean;
   squeezing: boolean;
   selecting: boolean;
@@ -68,6 +71,7 @@ export class HandInput {
   private readonly slots: Slot[] = [];
   private readonly opts: HandInputOptions;
   private readonly cleanups: Array<() => void> = [];
+  private lastUpdate = 0;
 
   constructor(opts: HandInputOptions) {
     this.opts = opts;
@@ -79,15 +83,9 @@ export class HandInput {
     const ray = renderer.xr.getController(index);
     const grip = renderer.xr.getControllerGrip(index);
     const hand = renderer.xr.getHand(index);
-    const visual = new ArticulatedHand(hand);
+    const visual = new HandGauntlet(hand);
+    const ctrlVisual = new ControllerGauntlet(grip);
     scene.add(ray, grip, hand);
-    // Small visible marker for controllers (no model download).
-    const knob = new THREE.Mesh(
-      new THREE.SphereGeometry(0.012, 12, 12),
-      new THREE.MeshStandardMaterial({ color: 0xf2d7b6, roughness: 0.6 }),
-    );
-    knob.position.set(0, 0, -0.05);
-    grip.add(knob);
 
     const g: Grabber = {
       index,
@@ -110,7 +108,7 @@ export class HandInput {
     line.scale.z = RAY_LEN;
     line.visible = false;
     ray.add(line);
-    const slot: Slot = { g, line, ray, grip, hand, visual, mustOpen: true, squeezing: false, selecting: false };
+    const slot: Slot = { g, line, ray, grip, hand, visual, ctrlVisual, mustOpen: true, squeezing: false, selecting: false };
     this.grabbers.push(g);
     this.slots.push(slot);
 
@@ -180,7 +178,7 @@ export class HandInput {
       c.removeEventListener("squeezestart", onSqStart);
       c.removeEventListener("squeezeend", onSqEnd);
       visual.dispose();
-      knob.geometry.dispose(); (knob.material as THREE.Material).dispose();
+      ctrlVisual.dispose();
       line.geometry.dispose(); (line.material as THREE.Material).dispose();
       scene.remove(ray, grip, hand);
     });
@@ -221,6 +219,9 @@ export class HandInput {
 
   /** Per frame, before interaction logic. */
   update() {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const dt = this.lastUpdate ? Math.min((now - this.lastUpdate) / 1000, 0.1) : 1 / 72;
+    this.lastUpdate = now;
     for (const s of this.slots) {
       this.updateSlot(s);
       const g = s.g;
@@ -228,9 +229,11 @@ export class HandInput {
         if (g.pinching) { g.pinching = false; this.opts.onPinchEnd(g); }
         s.mustOpen = true;
         s.visual.update(false, false);
+        s.ctrlVisual.update(null, false, false, dt);
         continue;
       }
-      s.visual.update(g.kind === "hand", g.pinching);
+      s.visual.update(g.kind === "hand", g.pinching, dt);
+      s.ctrlVisual.update(g.source, g.kind === "controller" && s.grip.visible, g.pinching, dt);
       if (g.kind === "hand") {
         const joints = s.hand.joints;
         const a = joints["thumb-tip"]!.getWorldPosition(new THREE.Vector3());
@@ -297,6 +300,7 @@ export class HandInput {
       if (s.g.pinching) { s.g.pinching = false; this.opts.onPinchEnd(s.g); }
       s.g.tracked = false; s.mustOpen = true; s.selecting = s.squeezing = false;
       s.visual.update(false, false);
+      s.ctrlVisual.update(null, false, false);
     }
   }
 

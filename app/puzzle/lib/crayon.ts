@@ -15,8 +15,9 @@ import type { Grabber } from "./handInput";
 
 export type DrawMode = "none" | "contact" | "mouse";
 
-const GRAB_R = 0.09; // pinch point to crayon centre
-const TIP = 0.045; // tip ahead of the pinch point along the hand direction
+const SIZE = 2; // overall scale of the crayon model (1 = original 7.5 cm stick)
+const GRAB_R = 0.1; // pinch point to crayon centre
+const TIP = 0.045 * SIZE; // tip ahead of the pinch point along the hand direction
 const CONTACT_FRONT = 0.025; // tip up to 2.5 cm in front of the canvas …
 const CONTACT_BEHIND = 0.035; // … or pushed up to 3.5 cm through it
 const LOST_FRAMES = 6;
@@ -37,19 +38,23 @@ function makeCrayon(): THREE.Group {
   const g = new THREE.Group();
   g.name = "crayon";
   // Built along -Z with the tip at z = -TIP (so the group origin = pinch point).
+  // The stick is modelled at unit size inside `model`, which is scaled by SIZE.
+  const model = new THREE.Group();
+  model.scale.setScalar(SIZE);
+  g.add(model);
   const wax = new THREE.MeshStandardMaterial({ color: 0x2b59c3, roughness: 0.7 });
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.075, 16).rotateX(Math.PI / 2), wax);
   body.position.z = -0.005;
-  g.add(body);
+  model.add(body);
   const wrap = new THREE.Mesh(
     new THREE.CylinderGeometry(0.0085, 0.0085, 0.045, 16).rotateX(Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: 0xf3e9c6, roughness: 0.9 }),
   );
   wrap.position.z = 0.008;
-  g.add(wrap);
+  model.add(wrap);
   const tip = new THREE.Mesh(new THREE.ConeGeometry(0.008, 0.012, 16).rotateX(-Math.PI / 2), wax);
-  tip.position.z = -TIP + 0.006;
-  g.add(tip);
+  tip.position.z = -0.045 + 0.006;
+  model.add(tip);
   const halo = new THREE.Mesh(
     new THREE.TorusGeometry(0.03, 0.003, 8, 32),
     new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.85 }),
@@ -77,7 +82,7 @@ export class Crayon {
     this.object = makeCrayon();
     this.object.position.copy(opts.restPosition);
     this.object.quaternion.copy(opts.restQuaternion);
-    this.physical = opts.physics.add(this.object, new THREE.Vector3(0.009, 0.009, 0.045));
+    this.physical = opts.physics.add(this.object, new THREE.Vector3(0.009, 0.009, 0.045).multiplyScalar(SIZE));
     this.cursor = new THREE.Mesh(
       new THREE.RingGeometry(0.006, 0.011, 24),
       new THREE.MeshBasicMaterial({ color: 0x1f9d55, transparent: true, opacity: 0.9, depthTest: false }),
