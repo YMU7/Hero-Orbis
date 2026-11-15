@@ -78,7 +78,7 @@ export type PuzzleSceneProps = {
   wrongFlashUntil: number;
   swordFlashUntil: number;
   onStrokeEnd: (strokes: ReadonlyArray<Stroke>, source: string) => void;
-  onButton: (id: "reset" | "clear", detail: string) => void;
+  onButton: (id: "reset" | "clear" | "hint", detail: string) => void;
   onSound: (on: boolean) => void;
   /** The layout the room was built from (puzzle components live on it). */
   onLayout: (layout: SceneObject[]) => void;

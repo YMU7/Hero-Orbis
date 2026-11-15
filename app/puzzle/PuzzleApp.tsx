@@ -127,6 +127,10 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const stageRef=useRef<RescueStage>('silence');
   const [ending,setEnding]=useState<{seconds:number}|null>(null);
   const [idleNonce,setIdleNonce]=useState(0);
+  const [activeHint,setActiveHint]=useState<{stage:RescueStage;text:string}|null>(null);
+  const [hasNextHint,setHasNextHint]=useState(true);
+  const hintProgress=useRef<{stage:RescueStage;index:number}>({stage:'silence',index:0});
+  const advanceHint=useRef<()=>void>(()=>{});
   const voices=useRef(new Set<{ended:Promise<void>;stop:()=>void}>());
   const voiceQueue=useRef<Promise<void>>(Promise.resolve());
   const voiceRun=useRef(0);
@@ -178,6 +182,8 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   },[speak]);
   const resetRoom = useCallback(() => {
     stopVoices();
+    setActiveHint(null); setIdleNonce(n=>n+1);
+    hintProgress.current={stage:'silence',index:0};
     setStage('silence'); stageRef.current='silence'; setEnding(null);
     unmutedAt.current=null; smallQuipSaid.current=false; quipIndex.current=0; lastQuipAt.current=0;
     roomApi.current?.resetRoom();
@@ -386,32 +392,43 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     hintTimer.current = setTimeout(() => puzzleStore.set({ hint: null }), ms);
   }, []);
 
-  // Idle hints: gentle first, blunt second, timed from entering the stage
-  // (or from the player's last drawing attempt). A hint that finds her
-  // talking retries a few seconds later instead of interrupting.
+  // Timers and the hint button consume the same sequence. Advancing manually
+  // restarts the wait for the following hint, without replaying earlier ones.
   useEffect(() => {
-    const timers: Array<ReturnType<typeof setTimeout>> = [];
-    if (stage === "silence") {
-      // Each nudge stays up until the next one (the last one lingers).
-      SILENCE_NUDGES.forEach(([ms, text], i) => {
-        const hold = (SILENCE_NUDGES[i + 1]?.[0] ?? ms + 12_000) - ms;
-        timers.push(setTimeout(() => flashHint(text, hold), ms));
-      });
-    }
-    BARKS.filter((b) => b.kind === "hint" && b.stage === stage).forEach((h, i) => {
-      const attempt = () => {
-        if (stageRef.current !== stage) return;
-        if (!bark(h.id)) timers.push(setTimeout(attempt, 4000));
-      };
-      timers.push(setTimeout(attempt, HINT_DELAYS_MS[i] ?? HINT_DELAYS_MS[HINT_DELAYS_MS.length - 1] + 30_000 * i));
-    });
-    return () => {
-      timers.forEach(clearTimeout);
-      // A seal nudge must not linger on the plaque once the silence is broken.
-      const h = puzzleStore.get().hint;
-      if (SILENCE_NUDGES.some(([, text]) => text === h)) puzzleStore.set({ hint: null });
+    const hints = stage === 'silence'
+      ? SILENCE_NUDGES.map(([delay,text])=>({delay,text,id:null}))
+      : BARKS.filter(b=>b.kind==='hint'&&b.stage===stage).map((b,i)=>({...b,delay:HINT_DELAYS_MS[i]??55_000+30_000*i}));
+    if(hintProgress.current.stage!==stage)hintProgress.current={stage,index:0};
+    let index=hintProgress.current.index;
+    setHasNextHint(index<hints.length);
+    let timer: ReturnType<typeof setTimeout>|undefined;
+    const showNext=(manual=false)=>{
+      if(stageRef.current!==stage)return;
+      const hint=hints[index];
+      if(!hint)return;
+      if(timer)clearTimeout(timer);
+      // Manual requests reveal text immediately; their voice waits behind
+      // story dialogue. Automatic hints retry while the princess is speaking.
+      if(hint.id&&!manual&&!bark(hint.id)){
+        timer=setTimeout(()=>showNext(),4000);return;
+      }
+      if(hint.id&&manual)void speak(hint.id,hint.text);
+      setActiveHint({stage,text:hint.text});
+      index++;
+      hintProgress.current={stage,index};
+      const next=hints[index];
+      setHasNextHint(!!next);
+      if(next)timer=setTimeout(()=>showNext(),next.delay-hint.delay);
     };
-  }, [stage, idleNonce, bark, flashHint]);
+    advanceHint.current=()=>showNext(true);
+    if(hints[index])timer=setTimeout(()=>showNext(),hints[index].delay-(hints[index-1]?.delay??0));
+    return () => {
+      if(timer)clearTimeout(timer);
+      advanceHint.current=()=>{};
+    };
+  }, [stage, idleNonce, bark, speak]);
+
+  useEffect(()=>{setActiveHint(null);},[stage]);
 
   // ── Puzzle components (Scene Editor "+ Puzzle") ──────────────────────
   // attempt(): one puzzle's trigger happened. Locked → local hint only.
@@ -534,10 +551,11 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   );
 
   const onButton = useCallback(
-    (id: "reset" | "clear", detail: string) => {
+    (id: "reset" | "clear" | "hint", detail: string) => {
       debug.set({ lastSelectionAt: Date.now(), lastSelectionId: id, lastSelectionSource: detail });
       debug.push("xr", `button ${id} via ${detail}`);
-      if (id === "clear") clearBoard();
+      if (id === "hint") advanceHint.current();
+      else if (id === "clear") clearBoard();
       else puzzle.resetPuzzle("Reset puzzle");
     },
     [clearBoard, puzzle],
@@ -555,6 +573,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   );
 
   const hintText =
+    (activeHint?.stage === stage ? activeHint.text : null) ??
     ps.hint ??
     (mode === "live" && ps.phase === "waiting-connection"
       ? ps.nextReconnectAt
@@ -587,7 +606,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             video={activeVideo}
             placeholderLines={PLACEHOLDER[ps.phase] ?? [ps.phase, ""]}
             hudLines={hudLines}
-            hintText={stage === "silence" ? subtitle || hintText : hintText}
+            hintText={hintText}
             wrongFlashUntil={ps.wrongFlashUntil}
             swordFlashUntil={ps.swordFlashUntil}
             onStrokeEnd={onStrokeEnd}
@@ -616,6 +635,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             roomApi={roomApi}
           />
         )}
+        <button type="button" onClick={()=>advanceHint.current()} disabled={!hasNextHint} className="absolute right-4 top-16 rounded border border-amber-300/50 bg-amber-950/90 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-40">Next hint</button>
         {subtitle && <div className="pointer-events-none absolute bottom-4 left-4 right-4 rounded bg-black/80 p-3 text-sm text-amber-50">{subtitle}</div>}
         {ending && (
           <div className="absolute left-1/2 top-12 w-[min(92%,440px)] -translate-x-1/2 rounded-lg border-2 border-amber-300/80 bg-gradient-to-b from-[#2a2140]/95 to-[#151022]/95 p-5 text-center shadow-2xl">
