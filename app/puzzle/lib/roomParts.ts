@@ -42,7 +42,7 @@ export function makeCanvasTex(w: number, h: number) {
 export function paint(
   c: { canvas: HTMLCanvasElement; tex: THREE.CanvasTexture },
   bg: string,
-  lines: Array<{ text: string; font: string; color: string }>,
+  lines: Array<{ text: string; font: string; color: string; emphasis?: { text: string; color: string; glow: string } }>,
   align: CanvasTextAlign = "center",
 ) {
   const ctx = c.canvas.getContext("2d");
@@ -56,7 +56,27 @@ export function paint(
   lines.forEach((l, i) => {
     ctx.font = l.font;
     ctx.fillStyle = l.color;
-    ctx.fillText(l.text, x, lh * (i + 0.5), c.canvas.width - 32);
+    const emphasisAt = l.emphasis ? l.text.indexOf(l.emphasis.text) : -1;
+    if (l.emphasis && emphasisAt >= 0) {
+      const parts = [l.text.slice(0, emphasisAt), l.emphasis.text, l.text.slice(emphasisAt + l.emphasis.text.length)];
+      const widths = parts.map(text => ctx.measureText(text).width);
+      const width = widths.reduce((sum, w) => sum + w, 0);
+      ctx.save();
+      ctx.translate(x, lh * (i + 0.5));
+      ctx.scale(Math.min(1, (c.canvas.width - 32) / width), 1);
+      ctx.textAlign = "left";
+      let offset = align === "center" ? -width / 2 : align === "right" || align === "end" ? -width : 0;
+      parts.forEach((text, part) => {
+        ctx.fillStyle = part === 1 ? l.emphasis!.color : l.color;
+        ctx.shadowColor = part === 1 ? l.emphasis!.glow : "transparent";
+        ctx.shadowBlur = part === 1 ? 14 : 0;
+        ctx.fillText(text, offset, 0);
+        offset += widths[part];
+      });
+      ctx.restore();
+    } else {
+      ctx.fillText(l.text, x, lh * (i + 0.5), c.canvas.width - 32);
+    }
   });
   c.tex.needsUpdate = true;
 }

@@ -215,7 +215,12 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     applyTransform(painting.group, placement("painting"));
     scene.add(painting.group);
     const { paintMat, placeholder, hint, hud } = painting;
-    const setHint = (t: string) => paint(hint, "#6b4a1e", [{ text: t, font: "italic 40px serif", color: "#fbe7b5" }]);
+    const setHint = (t: string) => paint(hint, "#6b4a1e", [{
+      text: t, font: "italic 40px serif", color: "#fbe7b5",
+      emphasis: t.includes("Break the spell of silence")
+        ? { text: "Break", color: "#ff8a91", glow: "#ff2030" }
+        : undefined,
+    }]);
     const setHud = (lines: string[]) =>
       paint(hud, "#0b0c10", lines.map((t) => ({ text: t, font: "26px monospace", color: "#d8dbe6" })), "left");
 

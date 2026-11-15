@@ -64,7 +64,7 @@ export class RescueRoom {
  rescueSeconds: number | null = null;
  private elapsed = 0;
  private unmutedAt = 0;
- private melting = -1;
+ private readonly melting = new Map<PhysicalTool, number>();
  private falling = false;
  private fallSpeed = 0;
  private rippleAge = -1;
@@ -77,7 +77,6 @@ export class RescueRoom {
  private fireOut = false;
  private fireT = 0;
  private shutterDown = false;
- private fireDelay: number | null = null;
  private flashAge = -1;
  private readonly flashLight: THREE.PointLight;
  private readonly flashDisc: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
@@ -132,6 +131,8 @@ export class RescueRoom {
   // its side table with the lens toward the player's start.
   camera.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion())).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),RESCUE_LAYOUT.camera.yaw));
   this.camera=make('camera',camera,position(...RESCUE_LAYOUT.camera.position),new THREE.Vector3(.13,.15,.12));
+  // Upright XR grips point the tool axis upward; keep the camera lens forward.
+  this.camera.gripRotation.setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
   const photo=new THREE.Group();block(photo,[.25,.3,.014],[0,0,0],material(0xfff4d8));block(photo,[.21,.21,.016],[0,.025,0],dark);
   // A raised gold key silhouette remains readable from both sides in VR.
   for(const z of [-.012,.012]) {const miniature=key.clone();miniature.scale.setScalar(.65);miniature.position.set(0,.025,z);photo.add(miniature);}
@@ -194,7 +195,7 @@ export class RescueRoom {
   if(h.holder&&this.elapsed-this.lastGlassHammer>12&&near(h.object.localToWorld(new THREE.Vector3(0,0,-.22)),h.object.localToWorld(new THREE.Vector3(0,0,-.36)))){
    this.lastGlassHammer=this.elapsed;this.hooks.bark('glass-hammer');this.hooks.haptic(h.holder,.5,60);
   }
-  for(const [s,tip] of [[this.room.reward,-.86],[this.room.wallSword,-.64]] as const){
+  for(const [s,tip] of [[this.room.reward,-.86] as const,...this.room.rackSwords.map(s=>[s,-.67] as const)]){
    if(!s.holder||!s.object.visible||this.elapsed-this.lastGlassSword<=12)continue;
    if(near(s.object.localToWorld(new THREE.Vector3(0,0,-.15)),s.object.localToWorld(new THREE.Vector3(0,0,tip)))){
     this.lastGlassSword=this.elapsed;this.hooks.bark('glass-sword');this.hooks.haptic(s.holder,.5,60);
@@ -268,9 +269,18 @@ export class RescueRoom {
  update(dt:number) {
   this.elapsed+=dt;this.finale.update(dt);
   if(this.swordLit)this.swordFlame.scale.y=1+Math.sin(this.elapsed*14)*.15;
-  if(this.fireDelay!==null){this.fireDelay-=dt;if(this.fireDelay<=0){this.fireDelay=null;this.spawnFire();}}
-  if(this.room.wallSword.holder&&this.melting<0)this.melting=0;
-  if(this.melting>=0){this.melting+=dt;this.room.wallSword.object.scale.z=Math.max(.03,1-Math.max(0,this.melting-1.2)/.8);if(this.melting>=2){this.room.wallSword.reset();this.room.wallSword.object.scale.setScalar(1);this.melting=-1;if(this.stage==='unmuted')this.advance('melted');}}
+  for(const tool of this.room.rackSwords){
+   if(tool.holder&&!this.melting.has(tool))this.melting.set(tool,0);
+   const age=this.melting.get(tool);
+   if(age===undefined)continue;
+   const next=age+dt;this.melting.set(tool,next);
+   tool.object.scale.z=Math.max(.03,1-Math.max(0,next-1.2)/.8);
+   if(next>=2){
+    tool.reset();
+    tool.object.scale.setScalar(1);this.melting.delete(tool);
+    if(this.stage==='unmuted')this.advance('melted');
+   }
+  }
   // Drawing works whether or not they tried the wall sword first.
   if(this.stage==='unmuted'||this.stage==='melted'){
    if(this.strokesChanged()||this.board.drawing)this.drawingIdle=0;else this.drawingIdle+=dt;
@@ -280,11 +290,10 @@ export class RescueRoom {
   const blade=new THREE.Line3(sword.localToWorld(new THREE.Vector3(0,0,-.15)),sword.localToWorld(new THREE.Vector3(0,0,-.86)));
   if(this.stage==='drawn'&&this.room.reward.holder&&blade.closestPointToPoint(this.rope.position,true,new THREE.Vector3()).distanceTo(this.rope.position)<.6){
    const run=this.run;
-   // The rope cue (she conjures a fireball) and the line start now; the
-   // fireball leaves the canvas only after both the line and the picture
-   // have caught up, so the painting already shows it in her hands.
+   // Prepare during the first line and Orbis transition, then wait for
+   // the separate catch line to end before releasing the fireball.
    const spoken=this.advance('rope');
-   const ready=()=>{if(this.run===run&&this.stage==='rope')this.fireDelay=1.5;};
+   const ready=()=>{if(this.run===run&&this.stage==='rope')this.spawnFire();};
    if(spoken&&typeof spoken.then==='function')void spoken.then(ready,ready);else ready();
   }
   // After the rope check, so a blade that reaches the rope starts that beat
@@ -339,6 +348,6 @@ export class RescueRoom {
   if(t===this.fire)return this.fireOut;
   return t!==this.key||['key','rejected','photo','helping','escaped'].includes(this.stage);
  }
- reset(){this.finale.reset();this.swordLit=false;this.swordFlame.visible=false;this.drawingIdle=0;this.previousFire=null;this.run++;this.strokeSig='';this.fireDelay=null;this.stage='silence';this.elapsed=0;this.unmutedAt=0;this.rescueSeconds=null;this.melting=-1;this.falling=false;this.fallSpeed=0;this.fireCaught=false;this.fireEmerge=-1;this.fireOut=false;this.fireT=0;this.shutterDown=false;this.lastPoke=this.lastGlassHammer=this.lastGlassSword=-Infinity;this.rippleAge=-1;this.ripple.material.opacity=0;this.flashAge=-1;this.flashLight.intensity=0;this.flashDisc.visible=false;this.clearEndCard();this.glass.visible=this.rope.visible=true;this.glass.position.copy(this.glassHome);for(const t of [this.key,this.camera,this.photo,this.fire])t.reset();this.fire.object.scale.setScalar(1);this.show(this.key,true);this.show(this.camera,true);this.show(this.fire,false);this.show(this.photo,false);this.room.wallSword.object.scale.setScalar(1);for(let i=this.particles.length-1;i>=0;i--)this.removeParticle(i);}
+ reset(){this.finale.reset();this.swordLit=false;this.swordFlame.visible=false;this.drawingIdle=0;this.previousFire=null;this.run++;this.strokeSig='';this.stage='silence';this.elapsed=0;this.unmutedAt=0;this.rescueSeconds=null;this.melting.clear();this.falling=false;this.fallSpeed=0;this.fireCaught=false;this.fireEmerge=-1;this.fireOut=false;this.fireT=0;this.shutterDown=false;this.lastPoke=this.lastGlassHammer=this.lastGlassSword=-Infinity;this.rippleAge=-1;this.ripple.material.opacity=0;this.flashAge=-1;this.flashLight.intensity=0;this.flashDisc.visible=false;this.clearEndCard();this.glass.visible=this.rope.visible=true;this.glass.position.copy(this.glassHome);for(const t of [this.key,this.camera,this.photo,this.fire])t.reset();this.fire.object.scale.setScalar(1);this.show(this.key,true);this.show(this.camera,true);this.show(this.fire,false);this.show(this.photo,false);for(const sword of this.room.rackSwords)sword.object.scale.setScalar(1);for(let i=this.particles.length-1;i>=0;i--)this.removeParticle(i);}
  dispose(){this.finale.dispose();this.swordFlame.removeFromParent();const flameMats=new Set<THREE.Material>();this.swordFlame.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();flameMats.add(o.material);}});for(const m of flameMats)m.dispose();this.clearEndCard();this.ripple.removeFromParent();this.ripple.geometry.dispose();this.ripple.material.dispose();this.flashDisc.geometry.dispose();this.flashDisc.material.dispose();}
 }

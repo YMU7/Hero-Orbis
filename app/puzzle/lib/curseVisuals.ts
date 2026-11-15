@@ -15,8 +15,8 @@ import { CURSE_THREAD_POINTS, type UnityRoom } from "./unityRoom";
 //      musical notes drifting out of the painting along the threads into the
 //      crystal, where they vanish.
 //   2. "A hammer breaks it": glowing hairline cracks on the crystal, a small
-//      gold plaque with a hammer icon hanging under it, and the hammer head
-//      on the rack pulsing in the same violet while the room is silent.
+//      gold plaque with a hammer icon hanging under it, while the hammer head
+//      on the rack pulses to guide the player.
 // When the crystal breaks, the trapped notes burst out and float back up
 // into the painting.
 //
@@ -230,18 +230,4 @@ export function dressCurse(unity: UnityRoom) {
     };
     release.add(n);
   }
-  // 7. Hammer hint: a soft violet glow on the hammer head, pulsing with the
-  //    crystal while the room is silent (same colour = "these belong together").
-  const hammer = unity.hammer.object;
-  const hintMat = new THREE.MeshBasicMaterial({ color: 0xb98cff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, name: "hammer-hint" });
-  const hint = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), hintMat);
-  hint.scale.set(1.25, 0.75, 0.75);
-  hint.position.set(0, 0, -0.31);
-  hint.name = "hammer-hint";
-  hint.raycast = () => {};
-  hint.onBeforeRender = () => {
-    const silent = unity.rescue.stage === "silence";
-    hintMat.opacity = silent ? 0.18 + 0.22 * (0.5 + 0.5 * Math.sin(now() * 4)) : 0;
-  };
-  hammer.add(hint);
 }

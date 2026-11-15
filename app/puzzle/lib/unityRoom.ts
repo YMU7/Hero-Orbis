@@ -57,6 +57,7 @@ export class UnityRoom {
   readonly group = new THREE.Group();
   readonly hammer: PhysicalTool;
   readonly wallSword: PhysicalTool;
+  readonly rackSwords: PhysicalTool[] = [];
   readonly reward: PhysicalTool;
   readonly mute = new THREE.Group();
   /** The silence curse visuals (hidden once broken). Public so the look-dev
@@ -69,6 +70,7 @@ export class UnityRoom {
   drawing: Stroke[] = [];
   private sketch: THREE.Group | null = null;
   private peelAge = -1;
+  private hoverAge = 0;
   private audio: AudioContext | null = null;
   private ambience: AudioBufferSourceNode | null = null;
   private readonly previousHead = new THREE.Vector3();
@@ -99,9 +101,9 @@ export class UnityRoom {
     box(hammer, [0.20, 0.10, 0.10], [0, 0, -0.31], this.hammerHeadMat);
     painting.updateWorldMatrix(true, false);
     // Freestanding floor rack (octagon layout, roomLayout.RESCUE_LAYOUT): the
-    // hammer and the decoy sword hang in it head/blade down. These boxes are
+    // hammer and all five swords hang in it head/blade down. These boxes are
     // the collision proxy; propModels.dressRack swaps in the detailed rack
-    // (with its display swords). Placement only, behaviour unchanged.
+    // while each sword remains a separate interactive tool.
     const L = RESCUE_LAYOUT, H = L.rackHeights;
     const rack = new THREE.Group(); rack.name = "tool-rack";
     rack.position.copy(painting.localToWorld(new THREE.Vector3(...L.rack.position)));
@@ -115,19 +117,24 @@ export class UnityRoom {
     hammer.quaternion.copy(hanging);
     this.group.add(hammer);
     this.hammer = physics.add(hammer, new THREE.Vector3(0.1, 0.05, 0.2), new THREE.Vector3(0, 0, -0.15));
-    const blade = sword(false);
-    blade.position.copy(rack.localToWorld(new THREE.Vector3(L.rackSlots.wallSword, H.swordPommel, 0.02)));
-    blade.quaternion.copy(hanging);
-    this.group.add(blade);
-    this.wallSword = physics.add(blade, new THREE.Vector3(0.11, 0.025, 0.32), new THREE.Vector3(0, 0, -0.25));
-    this.wallSword.setGrabSegment(new THREE.Vector3(0,0,.04),new THREE.Vector3(0,0,-.64));
+    for (const [index, x] of [L.rackSlots.wallSword, ...L.rackSlots.decor].entries()) {
+      const blade = sword(false);
+      blade.name = index === 0 ? "wall-sword" : `rack-sword-${index}`;
+      blade.position.copy(rack.localToWorld(new THREE.Vector3(x, H.swordPommel, 0.02)));
+      blade.quaternion.copy(hanging);
+      this.group.add(blade);
+      const tool = physics.add(blade, new THREE.Vector3(0.11, 0.025, 0.36), new THREE.Vector3(0, 0, -0.28));
+      tool.setGrabSegment(new THREE.Vector3(0, 0, 0.08), new THREE.Vector3(0, 0, -0.67));
+      this.rackSwords.push(tool);
+    }
+    this.wallSword = this.rackSwords[0];
     const reward = sword(true);
     reward.position.copy(board.boardToWorld({ x: 0, y: 0 }, 0.25));
     reward.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0));
     this.group.add(reward);
     this.reward = physics.add(reward, new THREE.Vector3(0.11, 0.025, 0.45), new THREE.Vector3(0, 0, -0.4));
     this.reward.setGrabSegment(new THREE.Vector3(0,0,.04),new THREE.Vector3(0,0,-.86));
-    this.reward.resetOnGround = false;
+    this.reward.onDrop = () => this.emergeReward();
     reward.visible = false; this.reward.body.setEnabled(false);
     this.mute.position.copy(painting.localToWorld(new THREE.Vector3(0, -0.82, 0.12)));
     this.mute.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion()));
@@ -176,7 +183,7 @@ export class UnityRoom {
   }
   tryGrab(g: Grabber, ray: THREE.Ray | null) {
     if (this.rescue.camera.holder && g !== this.rescue.camera.holder && g.point.distanceTo(this.rescue.camera.object.position)<.25) return this.rescue.shoot();
-    return [this.hammer, this.wallSword, this.reward, this.rescue.camera, this.rescue.fire, this.rescue.key, this.rescue.photo].filter(t => this.rescue.canGrab(t)).sort((a, b) => a.distanceToGrab(g.point) - b.distanceToGrab(g.point)).some((t) => t.tryGrab(g, ray)) || this.rescue.poke(g.point);
+    return [this.hammer, ...this.rackSwords, this.reward, this.rescue.camera, this.rescue.fire, this.rescue.key, this.rescue.photo].filter(t => this.rescue.canGrab(t)).sort((a, b) => a.distanceToGrab(g.point) - b.distanceToGrab(g.point)).some((t) => t.tryGrab(g, ray)) || this.rescue.poke(g.point);
   }
   /** Desktop follows the same hammer contact path; never accepts another tool. */
   desktopStrike() {
@@ -223,7 +230,13 @@ export class UnityRoom {
     for(const child of this.reward.object.children)if(child!==this.reward.highlight)child.visible=false;
     this.reward.object.add(this.sketch);
     this.rewarded=true;this.reward.object.visible=true;this.reward.body.setEnabled(true);
+    this.emergeReward();
+  }
+  /** Reappear from the drawing on every drop, then remain suspended in reach. */
+  private emergeReward() {
+    this.reward.reset();
     this.peelAge=0;
+    this.hoverAge=0;
     if(this.board.mesh){
       const facing=this.board.mesh.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,-1),new THREE.Vector3(0,1,0)));
       this.reward.body.setRotation(facing,true);
@@ -234,8 +247,19 @@ export class UnityRoom {
     if(this.peelAge>=0){
       this.peelAge+=dt;
       if(this.reward.holder){this.peelAge=-1;}
-      else if(this.peelAge<.7){const k=this.peelAge/.7;this.reward.body.setTranslation(this.board.boardToWorld({x:0,y:0},.025+.3*(1-(1-k)**3)),true);this.reward.sync();}
-      else {this.peelAge=-1;this.reward.drop(new THREE.Vector3(0,0,.15));}
+      else {
+        const k=Math.min(1,this.peelAge/.7);
+        this.reward.body.setTranslation(this.board.boardToWorld({x:0,y:0},.025+.3*(1-(1-k)**3)),true);
+        this.reward.sync();
+        if(k===1)this.peelAge=-1;
+      }
+    } else if(this.rewarded && this.reward.object.visible && !this.reward.holder){
+      // A slow two-centimetre bob keeps the floating sketch alive and in reach.
+      this.hoverAge=(this.hoverAge+dt)%3;
+      const position=this.board.boardToWorld({x:0,y:0},.325);
+      position.y+=.02*Math.sin(this.hoverAge*Math.PI*2/3);
+      this.reward.body.setTranslation(position,true);
+      this.reward.sync();
     }
     this.rescue.update(dt);
     const head = this.hammer.object.localToWorld(new THREE.Vector3(0, 0, -0.31));

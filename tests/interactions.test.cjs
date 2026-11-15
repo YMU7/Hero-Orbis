@@ -59,9 +59,7 @@ test('rescue follows player actions, rejects shortcuts, and resets every prop', 
   const toStart=new THREE.Vector3(-boxHome.x,0,-boxHome.z).normalize();
   assert.ok(Math.abs(lensDirection.y)<1e-6&&lensDirection.dot(toStart)>.99,'portrait box lens faces the player start');
   grab(room.reward);move(room.reward,r.rope.position.clone().add(new THREE.Vector3(0,0,.45)));room.update(.01);
-  assert.equal(r.stage,'rope');assert.equal(r.fire.object.visible,false);
-  room.update(1.49);assert.equal(r.fire.object.visible,false,'buffer before fireball appears');
-  room.update(.02);assert.equal(r.fire.object.visible,true);assert.equal(r.stage,'rope');
+  assert.equal(r.stage,'rope');assert.equal(r.fire.object.visible,true,'appears immediately when no dialogue is pending');
   assert.equal(r.canGrab(r.fire),false,'fireball is still leaving the canvas');
   assert.ok(painting.worldToLocal(r.fire.object.position.clone()).z<.2,'fireball starts at the painting surface');
   room.update(1);assert.equal(r.canGrab(r.fire),true,'fireball is out in the room');
@@ -80,6 +78,43 @@ test('rescue follows player actions, rejects shortcuts, and resets every prop', 
  } finally {room.dispose();physics.dispose();}
 });
 
+test('all five rack swords grab, shrink, and return to their slots', async () => {
+ await initToolPhysics();const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
+ const room=new UnityRoom(physics,painting,{strokes:[],boardToWorld:()=>new THREE.Vector3(0,1.3,0)},()=>{});
+ try {
+  assert.equal(room.rackSwords.length,5);assert.equal(physics.tools.some(t=>t.object.name==='hip-sword'),false);
+  room.desktopStrike();
+  for(const tool of room.rackSwords){
+   const home=tool.object.position.clone(),g=grabber(tool.object.localToWorld(new THREE.Vector3(0,0,-.3)));
+   assert.equal(room.tryGrab(g,null),true);assert.equal(tool.holder,g);
+   room.update(1.6);assert.ok(Math.abs(tool.object.scale.z-.5)<1e-5);
+   room.update(.41);assert.equal(tool.holder,null);assert.equal(tool.object.scale.z,1);
+   assert.ok(tool.object.position.distanceTo(home)<1e-5);
+  }
+  assert.equal(room.rescue.stage,'melted');
+  for(const tool of room.rackSwords)assert.equal(tool.tryGrab(grabber(tool.object.position)),true);
+  room.update(1.6);assert.ok(room.rackSwords.every(t=>t.object.scale.z<1));
+  physics.reset();room.reset();assert.ok(room.rackSwords.every(t=>t.object.scale.z===1&&!t.holder));
+ } finally {room.dispose();physics.dispose();}
+});
+
+test('camera lens faces forward with an upright XR grip', async () => {
+ await initToolPhysics();const physics=new ToolPhysics(),painting=new THREE.Group();
+ const room=new UnityRoom(physics,painting,{strokes:[],boardToWorld:()=>new THREE.Vector3(0,1.3,0)},()=>{}),tool=room.rescue.camera;
+ try {
+  for(const kind of ['hand','controller'])for(const yaw of [0,.7,-1.2]){
+   const g=grabber(tool.object.position);g.kind=kind;
+   const facing=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),yaw);
+   g.rotation=facing.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2));
+   assert.equal(tool.tryGrab(g),true);physics.update(1/90);
+   assert.ok(new THREE.Vector3(0,0,-1).applyQuaternion(tool.object.quaternion).distanceTo(new THREE.Vector3(0,0,-1).applyQuaternion(facing))<1e-5);
+   assert.ok(new THREE.Vector3(0,1,0).applyQuaternion(tool.object.quaternion).y>.999);tool.reset();
+  }
+  const g=grabber(tool.object.position);g.index=-1;g.rotation=new THREE.Quaternion();tool.tryGrab(g);physics.update(1/90);
+  assert.ok(tool.object.quaternion.angleTo(g.rotation)<1e-5,'desktop still aims along view');
+ } finally {room.dispose();physics.dispose();}
+});
+
 test('fireball waits for dialogue completion and reset cancels pending appearance', async () => {
  await initToolPhysics();
  const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
@@ -94,21 +129,60 @@ test('fireball waits for dialogue completion and reset cancels pending appearanc
  };
  try {
   trigger();room.update(30);assert.equal(r.fire.object.visible,false,'waits for actual audio ending');
-  finish();await Promise.resolve();room.update(1.49);assert.equal(r.fire.object.visible,false);
-  room.update(.02);assert.equal(r.fire.object.visible,true);
+  finish();await Promise.resolve();
+  assert.equal(r.fire.object.visible,true,'appears at dialogue completion without an extra delay');
   room.reset();trigger();room.reset();finish();await Promise.resolve();room.update(30);
   assert.equal(r.stage,'silence');assert.equal(r.fire.object.visible,false,'old audio cannot restart sequence after reset');
  } finally {room.dispose();physics.dispose();}
 });
 
-test('both swords can be grabbed along the blade and dropped props return except the drawn sword', async () => {
+test('drawn sword emerges from the canvas, hovers, and repeats the emergence on release', async () => {
+ await initToolPhysics();
+ const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
+ const mesh=new THREE.Group();mesh.position.set(1,1.3,-2);mesh.rotation.y=.6;mesh.updateMatrixWorld(true);
+ const board={strokes:[[{x:0,y:0},{x:0,y:.2}]],mesh,boardToWorld:(p,z=0)=>mesh.localToWorld(new THREE.Vector3(p.x,p.y,z))};
+ const room=new UnityRoom(physics,painting,board,()=>{});
+ const local=()=>mesh.worldToLocal(room.reward.object.position.clone());
+ const emergence=()=>{
+  assert.ok(Math.abs(local().z-.025)<1e-5,'starts at canvas surface');
+  room.update(.2);assert.ok(local().z>.025&&local().z<.325,'floats outward gradually');
+  room.update(.6);assert.ok(Math.abs(local().z-.325)<1e-5,'stops about a foot from canvas even when a frame overshoots');
+  const home=room.reward.object.position.clone(),q=room.reward.object.quaternion.clone();
+  let minY=Infinity,maxY=-Infinity;
+  for(let i=0;i<270;i++){
+   physics.update(1/90);room.update(1/90);
+   const p=room.reward.object.position;
+   minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);
+   assert.ok(Math.abs(p.x-home.x)<1e-5&&Math.abs(p.z-home.z)<1e-5,'bob stays a foot from canvas');
+   assert.ok(Math.abs(p.y-home.y)<=.02001,'bob stays gentle and resists gravity');
+  }
+  assert.ok(maxY-home.y>.019&&home.y-minY>.019,'hover bobs both up and down');
+  assert.ok(room.reward.object.position.distanceTo(home)<1e-5,'bob completes a smooth three-second cycle');
+  assert.ok(room.reward.object.quaternion.angleTo(q)<1e-5,'hover keeps sword upright');
+ };
+ try {
+  room.spawnReward();emergence();
+  for(const tracked of [true,false]){
+   const g=grabber(room.reward.object.position);g.rotation=new THREE.Quaternion();
+   assert.equal(room.reward.tryGrab(g),true);
+   g.point.add(new THREE.Vector3(.5,.2,.5));physics.update(1/90);room.update(.01);
+   assert.ok(room.reward.object.position.distanceTo(g.point)<1e-5,'held sword follows hand without bobbing');
+   g.tracked=tracked;physics.release(g);emergence();
+  }
+  room.reward.drop(new THREE.Vector3(0,-5,0));emergence();
+  room.reward.drop();room.reset();room.update(1);
+  assert.equal(room.reward.object.visible,false,'puzzle reset cancels emergence');
+ } finally {room.dispose();physics.dispose();}
+});
+
+test('both swords can be grabbed along the blade and dropped props return', async () => {
  await initToolPhysics();
  const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
  const board={strokes:[],boardToWorld:()=>new THREE.Vector3(0,1.3,0)};
  const room=new UnityRoom(physics,painting,board,()=>{});
  try {
   room.spawnReward();
-  for(const tool of [room.wallSword,room.reward]){
+  for(const tool of [...room.rackSwords,room.reward]){
    for(const z of [-.2,-.4,tool===room.reward?-.84:-.62]){
     const point=tool.object.localToWorld(new THREE.Vector3(0,0,z));
     const g=grabber(point);assert.equal(tool.tryGrab(g),true,'hand can grab blade through tip');tool.reset();
@@ -121,8 +195,8 @@ test('both swords can be grabbed along the blade and dropped props return except
   tool.drop();tool.body.setTranslation({x:0,y:.12,z:0},true);tool.sync();tool.returnFromFloor();
   assert.ok(tool.object.position.distanceTo(home)<1e-5);assert.ok(tool.object.quaternion.angleTo(homeQ)<1e-5);
   assert.equal(tool.body.isFixed(),true,'returned prop stays on its mount');
-  room.reward.drop();room.reward.body.setTranslation({x:0,y:.025,z:0},true);room.reward.sync();room.reward.returnFromFloor();
-  assert.equal(room.reward.body.isDynamic(),true,'drawn sword stays dropped');assert.ok(room.reward.object.position.y<.03);
+  room.reward.drop();room.update(.7);
+  assert.equal(room.reward.body.isFixed(),true,'drawn sword returns to hovering');
   const strands=room.rescue.rope.children.filter(o=>o.name==='hemp-rope-strand');assert.equal(strands.length,3);
   const bounds=new THREE.Box3().setFromObject(room.rescue.rope);assert.ok(bounds.max.y>=3.19,'rope reaches ceiling');
  } finally {room.dispose();physics.dispose();}
@@ -265,4 +339,37 @@ test('early key photo succeeds and final hand touch waits for speech; reset canc
   room.reset();r.stage='photo';r.photo.object.visible=true;r.photo.body.setEnabled(true);photoContact();
   room.reset();finish();await Promise.resolve();assert.equal(r.finale.touchable,false);assert.equal(r.stage,'silence');
  } finally {room.dispose();physics.dispose();}
+});
+
+
+test('fireball preparation overlaps Orbis, then catch dialogue gates spawning and reset cancels it', async () => {
+ const { playFireballDialogue }=require('../app/puzzle/lib/fireballDialogue.ts');
+ const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
+ const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();};
+ await initToolPhysics();
+ for(const transitionFirst of [true,false]){
+  const physics=new ToolPhysics(),painting=new THREE.Group();painting.position.y=1.8;
+  const transition=deferred(),preparation=deferred(),catchLine=deferred(),calls=[];
+  let current=true;
+  const speak=(id,text)=>{calls.push({id,text});return id==='rope'?preparation.promise:catchLine.promise;};
+  const room=new UnityRoom(physics,painting,{strokes:[],boardToWorld:()=>new THREE.Vector3(0,1.3,0)},()=>{},beat=>beat.id==='rope'?playFireballDialogue(transition.promise,speak,()=>current):undefined);
+  try {
+   room.spawnReward();room.rescue.stage='drawn';
+   const tool=room.reward;tool.tryGrab(grabber(tool.object.position));
+   tool.body.setTranslation(room.rescue.rope.position.clone().add(new THREE.Vector3(0,0,.45)),true);tool.sync();room.update(.01);
+   assert.deepEqual(calls.map(c=>c.id),['rope'],'preparation dialogue starts during transition');
+   (transitionFirst?transition:preparation).resolve();await flush();
+   assert.equal(calls.length,1,'both transition and first line must finish');
+   assert.equal(room.rescue.fire.object.visible,false);
+   (transitionFirst?preparation:transition).resolve();await flush();
+   assert.deepEqual(calls.map(c=>c.id),['rope','catch-fireball']);
+   assert.equal(calls[1].text,'Catch my fireball!');
+   room.update(30);assert.equal(room.rescue.fire.object.visible,false,'never spawns while catch line plays');
+   catchLine.resolve();await flush();assert.equal(room.rescue.fire.object.visible,true,'spawns exactly after catch line');
+  } finally {current=false;room.dispose();physics.dispose();}
+ }
+ const transition=deferred(),preparation=deferred(),calls=[];let current=true;
+ const done=playFireballDialogue(transition.promise,(id)=>{calls.push(id);return preparation.promise;},()=>current);
+ current=false;transition.resolve();preparation.resolve();await done;
+ assert.deepEqual(calls,['rope'],'reset prevents a stale catch line');
 });

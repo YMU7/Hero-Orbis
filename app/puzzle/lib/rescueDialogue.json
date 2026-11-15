@@ -22,7 +22,12 @@
   {
     "id": "rope",
     "cue": "She cups her small hands together in front of her chest, and a round glowing orange fireball floats between her palms, casting warm flickering firelight on her face and gown; she gazes at it with excited wonder. Her face stays soft, smooth and youthful. The camera does not move.",
-    "text": "Oh yeah I forgot, that is special sword-proof rope. Can't cut it. I wonder if this will work... we need something to catch fire!"
+    "text": "We need something to catch fire. I wonder..."
+  },
+  {
+    "id": "catch-fireball",
+    "cue": "",
+    "text": "Catch my fireball!"
   },
   {
     "id": "released",

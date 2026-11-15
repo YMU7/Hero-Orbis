@@ -467,24 +467,6 @@ function dressFire(fire: THREE.Object3D) {
 
 // ── Freestanding sword rack ─────────────────────────────────────────────────
 
-/** Bake a sword built along -Z (pommel at the origin) into `rack`, hanging
- *  blade-down at rack-local (x, y, z). Parts stay "prop-detail" so
- *  mergeDetails folds them into the rack's per-material meshes. */
-function hangInRack(rack: THREE.Object3D, build: (g: THREE.Object3D) => void, x: number, y: number, z: number) {
-  const g = new THREE.Group();
-  build(g);
-  const place = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, -1, 0)), new THREE.Vector3(1, 1, 1));
-  for (const c of [...g.children]) {
-    const mesh = c as THREE.Mesh;
-    mesh.updateMatrix();
-    mesh.geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(place, mesh.matrix));
-    mesh.position.set(0, 0, 0);
-    mesh.rotation.set(0, 0, 0);
-    mesh.scale.set(1, 1, 1);
-    rack.add(mesh);
-  }
-}
-
 /** A blade like bladeGeometry, bent sideways along its length (scimitar). */
 function curvedBladeGeometry(len: number, width: number, thick: number, bend: number) {
   const g = bladeGeometry(len, width, thick);
@@ -541,7 +523,7 @@ function wrappedGrip(g: THREE.Object3D, core: THREE.Material, wrap: THREE.Materi
 
 /** The five swords of the rack, built along -Z with the pommel at the origin
  *  (same frame as the grabbable sword: guard at z -0.14, blade from -0.15).
- *  Index 0 is the grabbable decoy; 1-4 stand in the display slots. Blades
+ *  All five are separate grabbable props in their rack slots. Blades
  *  stay <= 0.52 m so every tip rests in its slot. */
 const SWORD_DESIGNS: Array<(g: THREE.Object3D) => void> = [
   // 1. slender long sword: curled gold quillons, pink wrapped grip, pink gem pommel
@@ -611,9 +593,6 @@ const SWORD_DESIGNS: Array<(g: THREE.Object3D) => void> = [
   },
 ];
 
-/** The grabbable decoy wears design 1; the display slots wear 2-5. */
-const DISPLAY_SWORDS = SWORD_DESIGNS.slice(1);
-
 function dressRack(rack: THREE.Object3D) {
   const m = mats();
   strip(rack);
@@ -651,8 +630,6 @@ function dressRack(rack: THREE.Object3D) {
   part(rack, rbox(0.13, 0.15, 0.025, 0.04), m.lilacPaint, [0, top + 0.1, -0.09]);
   part(rack, rbox(0.14, 0.16, 0.018, 0.045), m.gold, [0, top + 0.1, -0.095]);
   part(rack, new THREE.OctahedronGeometry(0.035, 0), m.gold, [0, top + 0.1, -0.072], [0, 0, Math.PI / 4], [1, 1, 0.35]);
-  // four display swords (designs 2-5) in the other slots
-  L.rackSlots.decor.forEach((x, i) => hangInRack(rack, DISPLAY_SWORDS[i % DISPLAY_SWORDS.length], x, H.swordPommel, 0.02));
   // soft contact shadow
   part(rack, new THREE.PlaneGeometry(L.rack.width + 0.3, 0.6), mat("shadow"), [0, 0.014, 0], [-Math.PI / 2, 0, 0]);
 }
@@ -726,6 +703,7 @@ export function dressProps(unity: UnityRoom) {
     const o = unity.group.getObjectByName(n);
     if (o) mergeDetails(o);
   }
+  for (const tool of unity.rackSwords.slice(1)) mergeDetails(tool.object);
   if (unity.rescue.glass) mergeDetails(unity.rescue.glass);
   // Silence crystal guidance (mute symbol, notes, cracks, hammer plaque + hint).
   dressCurse(unity);
@@ -735,8 +713,13 @@ function dressAll(unity: UnityRoom) {
   const byName = (n: string) => unity.group.getObjectByName(n);
   const h = byName("hammer");
   if (h) dressHammer(h);
-  const ws = byName("wall-sword");
-  if (ws) dressSword(ws, false);
+  unity.rackSwords.forEach((tool, index) => {
+    if (index === 0) dressSword(tool.object, false);
+    else {
+      strip(tool.object);
+      SWORD_DESIGNS[index](tool.object);
+    }
+  });
   // royal-sword stays the minimal model from unityRoom (Quest perf).
   const rack = byName("tool-rack");
   if (rack) dressRack(rack);

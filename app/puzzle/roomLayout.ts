@@ -51,9 +51,8 @@ export const RESCUE_LAYOUT = {
   glass: toPainting(KEY_XZ[0], 1.13, KEY_XZ[1]),
   /** Freestanding floor rack (origin on the floor, local +Z = front). */
   rack: { position: toPainting(RACK_XZ[0], 0, RACK_XZ[1]), yaw: -45 * DEG, width: 1.34 },
-  /** Slots along the rack's local X (metres from its centre). The hammer
-   *  and the decoy sword are the interactive ones; `decor` swords are part of
-   *  the rack model (propModels.dressRack). */
+  /** Slots along the rack's local X (metres from its centre). All five swords
+   *  and the hammer are independent interactive tools. */
   rackSlots: { decor: [-0.33, -0.11, 0.11, 0.33], wallSword: -0.55, hammer: 0.55 },
   /** Heights (rack local): sword pommel and hammer handle end, both hanging
    *  blade/head down so the grab point is at waist height. */

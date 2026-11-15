@@ -28,6 +28,7 @@ import { installQuestEmulatorIfRequested } from "../mvp/lib/xrEmulation";
 import type { VideoHealth } from "../mvp/lib/videoTextureHealth";
 import type { RescueBeat, RescueStage } from './lib/rescueScript';
 import { RESCUE_SCRIPT } from './lib/rescueScript';
+import { playFireballDialogue } from './lib/fireballDialogue';
 import barks from './lib/rescueBarks.json';
 import { BOARD_H, PUZZLE_RESOLUTION, WRONG_HINT_IDLE_MS } from "./puzzleConfig";
 import { mockLabel, usePuzzleController } from "./lib/usePuzzleController";
@@ -83,7 +84,7 @@ const QUIP_GAP_MS = 8000;
 const QUIPS = ['quip-baguette', 'quip-butter', 'quip-witch'];
 /** What the plaque under the painting says when nobody is talking. */
 const OBJECTIVE: Record<RescueStage, string> = {
-  silence: 'She has been silenced! Break the silence, hero.',
+  silence: 'She has been silenced! Break the spell of silence, hero.',
   unmuted: 'Draw your sword, hero!',
   melted: 'There must be another way to draw a sword…',
   drawn: 'Free the key from the box.',
@@ -123,6 +124,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   // line. The subtitle clears shortly after the last clip ends, letting the
   // plaque fall back to the current objective.
   const [subtitle,setSubtitle]=useState('');
+  const [dialoguePending,setDialoguePending]=useState(false);
   const [stage,setStage]=useState<RescueStage>('silence');
   const stageRef=useRef<RescueStage>('silence');
   const [ending,setEnding]=useState<{seconds:number}|null>(null);
@@ -143,6 +145,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const stopVoices=useCallback(()=>{
     voiceRun.current++; voiceQueue.current=Promise.resolve(); voiceBusy.current=0;
     if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
+    setDialoguePending(false);
     setSubtitle(''); for(const v of voices.current)v.stop(); voices.current.clear();
   },[]);
   /** Queue a line. `gate` holds it (in order, and counted as busy so barks
@@ -150,6 +153,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const speak=useCallback((id:string,text:string,gate:Promise<unknown>=Promise.resolve())=>{
     const run=voiceRun.current;
     voiceBusy.current++;
+    setDialoguePending(true);
     const spoken=voiceQueue.current.then(()=>gate).then(()=>new Promise<void>(resolve=>{
       if(run!==voiceRun.current){resolve();return;}
       if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
@@ -163,7 +167,10 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
         voices.current.delete(v);
         if(run===voiceRun.current){
           voiceBusy.current=Math.max(0,voiceBusy.current-1);
-          if(voiceBusy.current===0)subtitleTimer.current=setTimeout(()=>{if(voiceBusy.current===0)setSubtitle('');},SUBTITLE_HOLD_MS);
+          if(voiceBusy.current===0){
+            setDialoguePending(false);
+            subtitleTimer.current=setTimeout(()=>{if(voiceBusy.current===0)setSubtitle('');},SUBTITLE_HOLD_MS);
+          }
         }
         resolve();
       };
@@ -196,6 +203,10 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     const landed=puzzle.steerScript(beat);
     if((STAGES as readonly string[]).includes(beat.id)){const s=beat.id as RescueStage;stageRef.current=s;setStage(s);}
     if(beat.id==='unmuted')unmutedAt.current=Date.now();
+    if(beat.id==='rope'){
+      const run=voiceRun.current;
+      return playFireballDialogue(landed,speak,()=>voiceRun.current===run);
+    }
     // Her line waits for the shimmer: the morph lands, then the shader eases out.
     const shimmerOver=puzzleStore.get().morphing?landed.then(()=>sleep(SHIMMER_FADE_MS)):Promise.resolve();
     const spoken=beat.text?speak(beat.id,beat.text,shimmerOver):Promise.resolve();
@@ -409,8 +420,10 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       const hint=hints[index];
       if(!hint)return;
       if(timer)clearTimeout(timer);
-      // Manual requests reveal text immediately; their voice waits behind
-      // story dialogue. Automatic hints retry while the princess is speaking.
+      // Keep both manual and automatic hints behind the complete dialogue queue.
+      if(voiceBusy.current>0){
+        timer=setTimeout(()=>showNext(manual),4000);return;
+      }
       if(hint.id&&!manual&&!bark(hint.id)){
         timer=setTimeout(()=>showNext(),4000);return;
       }
@@ -574,7 +587,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     [connect, hasKey],
   );
 
-  const hintText =
+  const hintText = dialoguePending ? "" :
     (activeHint?.stage === stage ? activeHint.text : null) ??
     ps.hint ??
     (mode === "live" && ps.phase === "waiting-connection"
@@ -638,7 +651,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             roomApi={roomApi}
           />
         )}
-        <button type="button" onClick={()=>advanceHint.current()} disabled={!hasNextHint} className="absolute right-4 top-16 rounded border border-amber-300/50 bg-amber-950/90 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-40">Next hint</button>
+        <button type="button" onClick={()=>advanceHint.current()} disabled={!hasNextHint || dialoguePending} className="absolute right-4 top-16 rounded border border-amber-300/50 bg-amber-950/90 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-40">Next hint</button>
         {subtitle && <div className="pointer-events-none absolute bottom-4 left-4 right-4 rounded bg-black/80 p-3 text-sm text-amber-50">{subtitle}</div>}
         {ending && (
           <div className="absolute left-1/2 top-12 w-[min(92%,440px)] -translate-x-1/2 rounded-lg border-2 border-amber-300/80 bg-gradient-to-b from-[#2a2140]/95 to-[#151022]/95 p-5 text-center shadow-2xl">

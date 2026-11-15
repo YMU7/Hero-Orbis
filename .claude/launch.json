@@ -16,6 +16,13 @@
       "port": 3100
     },
     {
+      "name": "trailer-dev",
+      "runtimeExecutable": "C:\\Users\\zacya\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\bfa21d187eb00b05\\bin\\node.exe",
+      "runtimeArgs": ["node_modules/next/dist/bin/next", "dev", "-p", "3300"],
+      "env": { "NEXT_TELEMETRY_DISABLED": "1", "BASIC_AUTH_USER": "", "BASIC_AUTH_PASS": "", "NEXT_DIST_DIR": ".next-preview" },
+      "port": 3300
+    },
+    {
       "name": "dev-3200",
       "runtimeExecutable": "C:\\Users\\zacya\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\bfa21d187eb00b05\\bin\\node.exe",
       "runtimeArgs": ["node_modules/next/dist/bin/next", "dev", "-p", "3200"],

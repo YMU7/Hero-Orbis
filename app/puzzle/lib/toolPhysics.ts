@@ -62,6 +62,9 @@ export class ToolPhysics {
 
 export class PhysicalTool {
   resetOnGround = true;
+  readonly gripRotation = new THREE.Quaternion();
+  /** Optional return animation for props that should never enter free fall. */
+  onDrop: (() => void) | null = null;
   private grabSegment: THREE.Line3 | null = null;
   readonly body: RAPIER.RigidBody;
   readonly highlight = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.003, 6, 24), new THREE.MeshBasicMaterial({ color: 0xffdf86, depthTest: false }));
@@ -119,6 +122,7 @@ export class PhysicalTool {
     if (!g.tracked) { this.release(g, false); return; }
     if (g.rotation) this.q.copy(g.rotation);
     else this.q.setFromUnitVectors(new THREE.Vector3(0, 0, -1), g.dir);
+    if (g.index !== -1) this.q.multiply(this.gripRotation);
     this.body.setNextKinematicTranslation(g.point);
     this.body.setNextKinematicRotation(this.q);
     const t = performance.now();
@@ -128,6 +132,7 @@ export class PhysicalTool {
   release(g: Grabber, throwing = g.tracked) {
     if (g !== this.holder) return;
     this.holder = null;
+    if (this.onDrop) { this.samples = []; this.onDrop(); return; }
     this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
     const a = this.samples[0], b = this.samples.at(-1);
     const v = throwing && a && b && b.t > a.t ? b.p.clone().sub(a.p).multiplyScalar(1000 / (b.t - a.t)).clampLength(0, 8) : new THREE.Vector3();
@@ -143,6 +148,7 @@ export class PhysicalTool {
     this.samples = [];
   }
   drop(velocity = new THREE.Vector3()) {
+    if (this.onDrop) { this.onDrop(); return; }
     this.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
     this.body.setLinvel(velocity, true);
   }
