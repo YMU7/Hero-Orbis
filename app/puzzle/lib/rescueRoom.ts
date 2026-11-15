@@ -255,7 +255,7 @@ export class RescueRoom {
   ctx.fillStyle='#f6d47a';ctx.font='bold 76px serif';ctx.fillText('The Princess Is Free!',512,140);
   const s=Math.max(0,Math.round(this.rescueSeconds??0));
   ctx.fillStyle='#fbe7b5';ctx.font='italic 46px serif';ctx.fillText(`Rescued in ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`,512,250);
-  ctx.fillStyle='#cfc4e8';ctx.font='36px serif';ctx.fillText('Thank you for playing HERO',512,340);
+  ctx.fillStyle='#cfc4e8';ctx.font='36px serif';ctx.fillText('Thank you for playing Picture Me Free!',512,340);
   ctx.fillStyle='#9d93b8';ctx.font='28px serif';ctx.fillText('Press RESET on the pedestal to play again',512,415);
   const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace;
   this.endCard=new THREE.Mesh(new THREE.PlaneGeometry(1.2,.6),new THREE.MeshBasicMaterial({map:tex,toneMapped:false,transparent:true,opacity:0}));

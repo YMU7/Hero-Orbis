@@ -1,6 +1,6 @@
 # Prop design, round 2: swords, fireball, silence crystal, camera, room size
 
-Date: 2026-11-15. Concept sheets generated with Figma AI image generation (file "Hero – Prop Design Round 2"), approved, then built procedurally in code and revised after review. Visuals and layout only: no puzzle stage, condition, timing or grab rule changed.
+Date: 2026-11-15. Concept sheets generated with Figma AI image generation (file "Prop Design Round 2"), approved, then built procedurally in code and revised after review. Visuals and layout only: no puzzle stage, condition, timing or grab rule changed.
 
 | Prop | Design sheet | In game |
 |---|---|---|

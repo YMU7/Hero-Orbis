@@ -8,8 +8,8 @@
 ## Setup
 
 ```bash
-git clone https://github.com/YMU7/Hero-Orbis.git
-cd Hero-Orbis
+git clone https://github.com/YMU7/Picture-Me-Free.git
+cd Picture-Me-Free
 pnpm install
 ```
 

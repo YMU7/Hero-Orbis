@@ -3,7 +3,7 @@ param(
     [ValidateRange(1,380)][int]$Seconds = 30,
     [int]$Seed = 2026,
     [ValidateRange(1,32)][int]$Threads = 8,
-    [string]$OutFile = 'hero-orbis-demo.wav'
+    [string]$OutFile = 'picture-me-free-demo.wav'
 )
 $ErrorActionPreference = 'Stop'
 $Runtime = Join-Path $PSScriptRoot 'stable-audio-3/optimized/tflite'

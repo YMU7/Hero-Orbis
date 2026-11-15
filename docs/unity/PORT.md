@@ -1,8 +1,8 @@
-# Unity → Hero-Orbis WebXR migration
+# Unity → Picture Me Free! WebXR migration
 
-The workspace root is now the Hero-Orbis Next.js application. `origin` points to
-`https://github.com/YMU7/Hero-Orbis.git`; `unity-origin` retains the old remote.
-The migration branch is based on Hero-Orbis `main`. Local `main` merges that
+The workspace root is now the Picture Me Free! (formerly Hero-Orbis) Next.js application. `origin` points to
+`https://github.com/YMU7/Picture-Me-Free.git`; `unity-origin` retains the old remote.
+The migration branch is based on the project's `main` (then named Hero-Orbis). Local `main` merges that
 history with the original Unity history, retaining the migrated WebXR tree and
 the archived Unity source. No commits were pushed by the migration.
 
@@ -26,9 +26,9 @@ The nested `Hero-Orbis/` clone is retained as an ignored local backup.
 | Red logo shards, impact sound, looping room ambience | `UnityRoom` mesh debris and WebAudio synthesis |
 | `TrackedHands` optical joints, pinch hysteresis, tracking recovery | `HandInput`, locally generated `ArticulatedHand` glove meshes |
 | `RoomLocomotion` | `RoomMovement`: 2 m/s head-relative movement, room boundary, smooth right-stick turn at 90°/s, 15% turn dead zone |
-| Unity scene/editor builders | Hero room builders, scene JSON, and `/editor?scene=puzzle` |
+| Unity scene/editor builders | Picture Me Free! room builders, scene JSON, and `/editor?scene=puzzle` |
 
-Hero-Orbis's room, furniture, layout, editor, stream/session handling, sword
+Picture Me Free!'s room, furniture, layout, editor, stream/session handling, sword
 recognizer, style tuner, and painting color grade remain. The gramophone remains
 in the room as a visual asset; sound activation now uses the Unity hammer puzzle.
 A first mark earns the physical sword independently of recognition. Recognizing

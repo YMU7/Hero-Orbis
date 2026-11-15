@@ -659,7 +659,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             <div className="mt-1 font-serif italic text-amber-50">
               Rescued in {Math.floor(Math.round(ending.seconds) / 60)}:{String(Math.round(ending.seconds) % 60).padStart(2, "0")}
             </div>
-            <div className="mt-2 text-sm text-violet-200">Thank you for playing HERO</div>
+            <div className="mt-2 text-sm text-violet-200">Thank you for playing Picture Me Free!</div>
             <button
               className="mt-4 rounded border border-amber-300 px-4 py-1.5 text-sm text-amber-100 hover:bg-amber-300/20"
               onClick={() => puzzle.resetPuzzle("Play again (end card)")}

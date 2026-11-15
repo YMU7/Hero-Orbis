@@ -13,14 +13,14 @@ From the project root in PowerShell:
 ```
 
 WAV files are saved in `Tools/Music/output/` (44.1 kHz, stereo PCM).
-The default is a 30-second fantasy adventure cue for the Hero-Orbis demo.
+The default is a 30-second fantasy adventure cue for the Picture Me Free! demo.
 Use a different seed for variations. Maximum supported duration is 380 seconds;
 start with 20–30 seconds because longer renders cost more CPU time.
 The launcher uses 8 threads by default; `-Threads 4` reduces CPU contention.
 
 Verified on this Windows PC: the default 30-second cue generated successfully
 in 56.78 seconds on CPU (8 threads, 8 sampling steps, seed 2026), excluding
-downloads. Output: `output/hero-orbis-demo.wav`. Checked stereo, 44.1 kHz,
+downloads. Output: `output/picture-me-free-demo.wav`. Checked stereo, 44.1 kHz,
 exactly 30 seconds, finite samples, and non-silent output. Musical quality has
 not been assessed by listening; audition the sample before using it in the video.
 

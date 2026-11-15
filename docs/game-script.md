@@ -1,4 +1,4 @@
-# HERO — Princess Rescue: Game Script
+# Picture Me Free! — Princess Rescue: Game Script
 
 > Historical 2026-11-14 script. The current 2026-11-15 branching puzzles,
 > final hand interaction, dialogue timings and verification notes are in
@@ -176,7 +176,7 @@ Exported from the live game code (`rescueRoom.ts`, `unityRoom.ts`, `PuzzleApp.ts
 
 🪧 PLAQUE: *The princess is free!*
 
-▶ ACT: When her line ends, an end card rises under the painting with the text **The Princess Is Free!**, *Rescued in M:SS*, "Thank you for playing HERO" and "Press RESET on the pedestal to play again".
+▶ ACT: When her line ends, an end card rises under the painting with the text **The Princess Is Free!**, *Rescued in M:SS*, "Thank you for playing Picture Me Free!" and "Press RESET on the pedestal to play again".
 
 ▶ ACT (Reset): All props, voice and Orbis go back to Stage 1.
 

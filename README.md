@@ -1,4 +1,4 @@
-# Hero-Orbis
+# Picture Me Free!
 
 ## Current project: princess room + Unity gameplay port
 
@@ -37,7 +37,7 @@ See [migration details and verification limits](docs/unity/PORT.md).
 
 **Step inside a world that Visko Orbis generates live, and steer it from VR.**
 
-Hero streams a continuously generated video world from **Visko Orbis** into a WebXR scene on Meta Quest 3. The viewer aims a controller at an in-world control and pulls the trigger. The prompt changes on the same live generation session, and the world morphs at the next chunk boundary, with no restart.
+Picture Me Free! streams a continuously generated video world from **Visko Orbis** into a WebXR scene on Meta Quest 3. The viewer aims a controller at an in-world control and pulls the trigger. The prompt changes on the same live generation session, and the world morphs at the next chunk boundary, with no restart.
 
 Built at **Immerse the Bay 2026** (Stanford, November 13–15, 2026).
 
@@ -69,7 +69,7 @@ Built at **Immerse the Bay 2026** (Stanford, November 13–15, 2026).
 
 ## Overview
 
-Orbis is a live video model. It generates an unbroken stream in ~1.8 s chunks and accepts a new prompt at any time. Hero puts that stream inside VR and makes the prompt part of the room:
+Orbis is a live video model. It generates an unbroken stream in ~1.8 s chunks and accepts a new prompt at any time. Picture Me Free! puts that stream inside VR and makes the prompt part of the room:
 
 | | |
 |---|---|
@@ -140,8 +140,8 @@ Not yet sustained: stream delivery fell from 18 fps to 0–7 fps after ~30 s in 
 ### Install and run
 
 ```bash
-git clone https://github.com/YMU7/Hero-Orbis.git
-cd Hero-Orbis
+git clone https://github.com/YMU7/Picture-Me-Free.git
+cd Picture-Me-Free
 pnpm install
 cp .env.example .env
 pnpm build

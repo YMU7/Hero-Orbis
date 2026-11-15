@@ -51,7 +51,7 @@ function sword(royal: boolean) {
 export const CURSE_THREAD_POINTS = (x: number) =>
   [[0.1 * x, 0], [0.6 * x, -0.05], [1.2 * x, -0.03], [1.36 * x, 0.02], [1.37 * x, 0.8], [1.36 * x, 1.65]].map(([px, py]) => new THREE.Vector3(px, py, -0.03 + 0.005 * Math.abs(px)));
 
-/** Unity gameplay, expressed in Hero's existing room coordinate space. */
+/** Unity gameplay, expressed in the app's existing room coordinate space. */
 export class UnityRoom {
   readonly rescue: RescueRoom;
   readonly group = new THREE.Group();
