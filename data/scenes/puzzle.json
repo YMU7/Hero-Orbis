@@ -147,13 +147,13 @@
       "name": "Wall lantern R",
       "asset": "builtin:wall-lantern",
       "position": [
-        1.62,
+        2.5,
         1.75,
-        -2.6
+        0.6
       ],
       "rotation": [
         0,
-        0,
+        -90,
         0
       ],
       "scale": [

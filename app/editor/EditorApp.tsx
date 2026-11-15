@@ -9,6 +9,7 @@ import { DEFAULT_SCENE_ID, SCENE_VERSION, type SceneDoc, type SceneObject, type 
 import { MVP_RUNTIME_LAYOUT } from "../mvp/components/XRScene";
 import { ObjectComponents, RoomAudioSettings, type ComponentItem } from "./PuzzleSettings";
 import { checkPuzzles } from "../lib/sceneData/components";
+import { applyEnvironment } from "../puzzle/lib/lookdev";
 import {
   addRoomLights,
   buildBuiltinPreview,
@@ -228,6 +229,13 @@ export function EditorApp() {
     // Same background + lights as the runtime scene, so placement looks the same.
     const scene = new THREE.Scene();
     profile.lights(scene);
+    // Princess room: same tone mapping + reflection environment as /puzzle
+    // (its metallic gold needs the environment; shadows stay runtime-only).
+    let disposeEnv = () => {};
+    if (sceneId.current === "puzzle") {
+      renderer.toneMapping = THREE.NeutralToneMapping;
+      disposeEnv = applyEnvironment(renderer, scene);
+    }
     if (profile.floorAndGrid) {
       scene.add(new THREE.GridHelper(12, 24, 0x333849, 0x23262f));
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.MeshStandardMaterial({ color: 0x1b1d26, roughness: 1 }));
@@ -335,6 +343,7 @@ export function EditorApp() {
       renderer.domElement.removeEventListener("pointerup", onUp);
       gizmo.dispose();
       orbit.dispose();
+      disposeEnv();
       renderer.dispose();
       renderer.domElement.remove();
       three.current = null;

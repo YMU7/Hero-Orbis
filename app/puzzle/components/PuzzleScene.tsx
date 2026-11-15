@@ -32,6 +32,8 @@ import {
 } from "../lib/roomParts";
 import { applyTransform, createInstance, fetchScene } from "../../lib/sceneData/environment";
 import { batchStatic } from "../lib/staticBatch";
+import { applyEnvironment, enableShadows, refreshShadows, setupRenderer, tickLook, WALL_PIECES } from "../lib/lookdev";
+import { dressProps } from "../lib/propModels";
 import { emptyScene, type SceneObject } from "../../lib/sceneData/types";
 import { BOARD_H, BOARD_W, PUZZLE_SCENE_ID } from "../puzzleConfig";
 import type { Stroke } from "../lib/swordRecognizer";
@@ -112,7 +114,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    setupRenderer(renderer);
     renderer.xr.enabled = true;
     renderer.xr.setReferenceSpaceType("local-floor");
     container.appendChild(renderer.domElement);
@@ -127,6 +129,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     scene.add(rig); rig.add(camera);
     const movement = new RoomMovement(rig, camera, renderer);
     addRoomLights(scene);
+    const disposeEnv = applyEnvironment(renderer, scene);
     const shell = buildShell();
     scene.add(shell);
 
@@ -172,9 +175,16 @@ export function PuzzleScene(props: PuzzleSceneProps) {
         ).then((g) => {
           if (!disposed) env.add(g);
           if (isTargetPuzzle(o)) addTarget(o.id, g);
+          // Static sun shadow (lookdev): only freestanding pieces cast. The
+          // stylised sun lights the whole room "through" the walls, so wall
+          // pieces (windows, curtains, ivy, banners…) would throw shadows
+          // from an impossible direction — they only receive.
+          const k = builtinKind(o.asset);
+          enableShadows(g, { cast: !(k && WALL_PIECES.has(k)) });
           return { g, builtin: o.asset.startsWith("builtin:") && !isTargetPuzzle(o) };
         }),
       );
+      enableShadows(shell, { cast: false });
     // Phase E: once every piece exists, merge the shell + built-in decor per
     // material (no multiview in this three version → each mesh costs one
     // draw call PER EYE in VR). GLB imports stay as they are.
@@ -184,6 +194,12 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const builtins = items.filter((x) => x.builtin).map((x) => x.g);
       const st = batchStatic(staticRoot, [shell, ...builtins]);
       debug.push("info", `[puzzle] static batching: ${st.meshesIn} meshes → ${st.meshesOut} (skipped ${st.skipped})`);
+      // Static sun shadow: decor flags were set per piece above (and kept
+      // through batching); the map is rendered once (lookdev.refreshShadows).
+      for (const prop of [easel.group, pedestal.group, gramophone.group, painting.group]) enableShadows(prop);
+      // Grabbable tools move, so they only receive (a baked shadow would stay behind).
+      enableShadows(unity.group, { cast: false });
+      refreshShadows(renderer);
     });
 
     // ── Painting (Orbis stream) + hint + HUD ─────────────────────────────
@@ -233,6 +249,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     const physics = new ToolPhysics();
     const unity = new UnityRoom(physics, painting.group, board, (on) => propsRef.current.onSound(on), (beat) => propsRef.current.onBeat(beat));
     scene.add(unity.group);
+    dressProps(unity); // look-dev: detailed prop models, same pivots/footprints
     for (const prop of [easel.group, pedestal.group, gramophone.group]) physics.addStatic(prop);
 
     // ── Interaction: hands / controllers ─────────────────────────────────
@@ -402,6 +419,21 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       crayonHolder: () => crayon.holderLabel,
       tonearmHolder: () => tonearmHolder?.label ?? null,
       tools: () => physics.tools.map((tool) => ({ name: tool.object.name, visible: tool.object.visible, holder: tool.holder?.label ?? null, position: tool.object.position.toArray() })),
+      /** Look-dev state (tone mapping, shadows, environment). */
+      lookInfo: () => {
+        let casters = 0;
+        let receivers = 0;
+        scene.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh) {
+            if (m.castShadow) casters++;
+            if (m.receiveShadow) receivers++;
+          }
+        });
+        return { toneMapping: renderer.toneMapping, exposure: renderer.toneMappingExposure, shadows: renderer.shadowMap.enabled, casters, receivers, environment: !!scene.environment };
+      },
+      /** Raw renderer + scene for look-dev debugging in the console. */
+      three: () => ({ renderer, scene, camera }),
       /** Render cost of the last frame (Quest budget checks). */
       renderInfo: () => {
         let meshes = 0;
@@ -478,6 +510,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+      tickLook(t / 1000);
       movement.update(dt);
       rig.updateMatrixWorld(true);
       hands.update();
@@ -566,6 +599,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       hud.tex.dispose();
       hint.tex.dispose();
       buttons.forEach((b) => b.tex.tex.dispose());
+      disposeEnv();
       renderer.dispose();
       vrButton.remove();
       renderer.domElement.remove();

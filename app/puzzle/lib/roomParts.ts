@@ -5,7 +5,10 @@ import { BOARD_H, BOARD_W, PAINTING_SATURATION, PUZZLE_ACTIONS, PUZZLE_AUDIO_PRO
 import { Gramophone } from "./gramophone";
 import { DrawingBoard } from "./drawingBoard";
 import type { SceneDoc, SceneObject } from "../../lib/sceneData/types";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { FURNITURE, floorTileTexture, mat, ornateFrame, stoneWallTexture, type FurnitureKind } from "./furniture";
+import { glowHalo, lookQuality, withRoomAO } from "./lookdev";
+import { plasterSet, woodGrainSet } from "./proceduralTextures";
 
 // Building blocks of the princess room, shared by the /puzzle runtime and
 // the Scene Editor (/editor?scene=puzzle).
@@ -109,18 +112,52 @@ const goldMat = () => mat("gold");
 // point lights (Quest): a warm sky/lavender-bounce hemisphere, a warm "sun"
 // from the left window and a soft cool fill from the right. Floor sun
 // patches (builtin:sun-patch) fake the light coming through the windows.
+// Look-dev pass: with the baked room environment (lookdev.applyEnvironment)
+// supplying soft bounce light, the hemisphere is lower and the sun is
+// stronger and casts the one static shadow map. Its direction matches the
+// left window's light shaft (lookdev.SUN_LOCAL rotated by the window's 90°).
 export function addRoomLights(scene: THREE.Scene) {
+  const hq = lookQuality() === "high";
   scene.background = new THREE.Color(0xf3e3cc);
-  scene.add(new THREE.HemisphereLight(0xfff1dc, 0xc7a9d6, 1.55));
-  const sun = new THREE.DirectionalLight(0xffd59e, 1.35);
-  sun.position.set(-3, 4.5, 1.2);
+  scene.add(new THREE.HemisphereLight(0xfff1dc, 0xc7a9d6, hq ? 0.82 : 1.55));
+  const sun = new THREE.DirectionalLight(0xffd8a4, hq ? 2.3 : 1.35);
+  sun.position.set(-4.25, 5, 1.3);
+  sun.name = "sun";
+  if (hq) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const c = sun.shadow.camera;
+    c.left = -4;
+    c.right = 4;
+    c.top = 4;
+    c.bottom = -4;
+    c.near = 1;
+    c.far = 14;
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.025;
+    sun.shadow.radius = 4;
+    sun.shadow.intensity = 0.72;
+  }
   scene.add(sun);
-  const fill = new THREE.DirectionalLight(0xd6dcff, 0.35);
+  scene.add(sun.target);
+  const fill = new THREE.DirectionalLight(0xd6dcff, hq ? 0.45 : 0.35);
   fill.position.set(3, 2, 1.5);
   scene.add(fill);
 }
 
 // ── Shell (locked) ──────────────────────────────────────────────────────────
+
+/** A moulding of length `len` along local X, profile = [depth (+Z), height (+Y)]
+ *  points from the wall outward and back (closed against the wall). */
+function molding(len: number, profile: Array<[number, number]>, material: THREE.Material) {
+  const shape = new THREE.Shape(profile.map(([d, y]) => new THREE.Vector2(d, y)));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: len, bevelEnabled: false, curveSegments: 4 });
+  // extruded along +Z → rotate so the length runs along X and depth along +Z
+  geo.rotateY(-Math.PI / 2);
+  geo.translate(len / 2, 0, 0);
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, material);
+}
 
 export function buildShell(): THREE.Group {
   const shell = new THREE.Group();
@@ -132,21 +169,35 @@ export function buildShell(): THREE.Group {
   const H = ROOM.height;
   // Phase B: warm stone floor tiles, soft stone-block walls with a stone base
   // course and a gold crown line, ivory ceiling with wooden beams.
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ map: floorTileTexture([W / 2.4, D / 2.4]), roughness: 0.85 }));
+  // Look-dev pass: textures carry normal + roughness maps; floor, walls and
+  // ceiling get analytic room AO (dark seams and corners).
+  const fl = floorTileTexture([W / 2.4, D / 2.4]);
+  const floorMat = withRoomAO(new THREE.MeshStandardMaterial({ map: fl.map, normalMap: fl.normalMap, roughnessMap: fl.roughnessMap, roughness: 1, normalScale: new THREE.Vector2(0.8, 0.8), name: "floor" }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, 0, cz);
   shell.add(floor);
-  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ color: 0xf6eee0, roughness: 1 }));
+  const pl = plasterSet([W / 1.5, D / 1.5]);
+  const ceilMat = withRoomAO(new THREE.MeshStandardMaterial({ color: 0xf8f0e2, map: pl.map, normalMap: pl.normalMap, normalScale: new THREE.Vector2(0.4, 0.4), roughness: 1, name: "ceiling" }), 0.9);
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, D), ceilMat);
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(cx, H, cz);
   ceiling.name = "ceiling";
   shell.add(ceiling);
   for (let i = 0; i < 4; i++) {
-    const beamMesh = new THREE.Mesh(new THREE.BoxGeometry(W, 0.16, 0.18), mat("woodDark"));
-    beamMesh.position.set(cx, H - 0.08, ROOM.minZ + (D / 4) * (i + 0.5));
+    const z = ROOM.minZ + (D / 4) * (i + 0.5);
+    const beamMesh = new THREE.Mesh(new RoundedBoxGeometry(W, 0.16, 0.18, 2, 0.02), mat("woodDark"));
+    beamMesh.position.set(cx, H - 0.08, z);
     shell.add(beamMesh);
+    // carved corbels where each beam meets the side walls
+    for (const sx of [ROOM.minX + 0.07, ROOM.maxX - 0.07]) {
+      const corbel = new THREE.Mesh(new RoundedBoxGeometry(0.14, 0.26, 0.16, 2, 0.03), mat("woodDark"));
+      corbel.position.set(sx, H - 0.25, z);
+      shell.add(corbel);
+    }
   }
-  const wallMat = new THREE.MeshStandardMaterial({ map: stoneWallTexture([W / 1.6, H / 1.6]), roughness: 0.95 });
+  const ws = stoneWallTexture([W / 1.6, H / 1.6]);
+  const wallMat = withRoomAO(new THREE.MeshStandardMaterial({ map: ws.map, normalMap: ws.normalMap, roughnessMap: ws.roughnessMap, roughness: 1, normalScale: new THREE.Vector2(1, 1), name: "wall" }));
   const wainMat = mat("stoneDark");
   const trim = trimMat();
   const walls: Array<{ pos: [number, number]; rotY: number; len: number }> = [
@@ -162,11 +213,12 @@ export function buildShell(): THREE.Group {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(w.len, H), wallMat);
     wall.position.y = H / 2;
     g.add(wall);
-    const wain = new THREE.Mesh(new THREE.BoxGeometry(w.len, 0.22, 0.06), wainMat);
-    wain.position.set(0, 0.11, 0.03);
-    g.add(wain);
-    const crown = new THREE.Mesh(new THREE.BoxGeometry(w.len, 0.08, 0.06), trim);
-    crown.position.set(0, H - 0.04, 0.03);
+    // profiled stone skirting (plinth + ogee + bead) and a gold crown
+    // moulding, extruded along the wall
+    const base = molding(w.len, [[0, 0], [0.07, 0], [0.07, 0.16], [0.05, 0.19], [0.055, 0.215], [0.03, 0.235], [0.0, 0.24]], wainMat);
+    g.add(base);
+    const crown = molding(w.len, [[0, 0], [0.025, 0.0], [0.03, 0.02], [0.06, 0.05], [0.085, 0.085], [0.09, 0.11], [0.0, 0.11]], trim);
+    crown.position.y = H - 0.11;
     g.add(crown);
     shell.add(g);
   }
@@ -252,6 +304,9 @@ function sconce() {
   const flame = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 10), new THREE.MeshBasicMaterial({ color: 0xffc04d }));
   flame.position.set(0, 0.18, 0.08);
   g.add(flame);
+  const halo = glowHalo(0xffb45e, 0.35, 0.55);
+  halo.position.copy(flame.position);
+  g.add(halo);
   const light = new THREE.PointLight(0xffb45e, 1.4, 5, 1.5);
   light.position.set(0, 0.25, 0.23);
   g.add(light);
@@ -405,8 +460,9 @@ export const EASEL_TILT = 0.21; // rad, canvas top leans away from the viewer
  *  facing +Z. Returns the tilted canvas mount (the DrawingBoard goes on it). */
 export function buildEasel() {
   const group = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({ color: 0xb8762f, roughness: 0.7 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x8a5520, roughness: 0.7 });
+  const grain = woodGrainSet();
+  const wood = new THREE.MeshStandardMaterial({ color: 0xc07c34, roughness: 0.6, map: grain.map, normalMap: grain.normalMap, normalScale: new THREE.Vector2(0.4, 0.4) });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x8f5a26, roughness: 0.6, map: grain.map, normalMap: grain.normalMap, normalScale: new THREE.Vector2(0.4, 0.4) });
   group.add(beam(V(0, 0, 0.256), V(0, 2.05, -0.18), 0.055, 0.035, wood)); // mast
   group.add(beam(V(-0.42, 0, 0.2), V(-0.04, 1.7, -0.1), 0.04, 0.03, wood)); // front legs
   group.add(beam(V(0.42, 0, 0.2), V(0.04, 1.7, -0.1), 0.04, 0.03, wood));
@@ -426,7 +482,7 @@ export function buildEasel() {
   const clamp = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.05), dark);
   clamp.position.set(0, BOARD_H / 2 + 0.02, -0.005);
   mount.add(clamp);
-  const back = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.02, BOARD_H + 0.02, 0.02), new THREE.MeshStandardMaterial({ color: 0xd8cbb0 }));
+  const back = new THREE.Mesh(new RoundedBoxGeometry(BOARD_W + 0.03, BOARD_H + 0.03, 0.022, 2, 0.006), dark);
   back.position.z = -0.012;
   mount.add(back);
   // A visible pen clip beside the canvas, above the tray and clear of drawing.
@@ -448,11 +504,22 @@ export type PokeButton = { id: "reset" | "clear"; mesh: THREE.Mesh; mat: THREE.M
 /** Stone pedestal with the RESET / CLEAR poke buttons; origin on the floor. */
 export function buildPedestal() {
   const group = new THREE.Group();
-  const stone = new THREE.MeshStandardMaterial({ color: 0xe8e0f0, roughness: 0.8 });
-  const column = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.9, 0.2), stone);
-  column.position.y = 0.45;
+  const pl = plasterSet([1, 2]);
+  const stone = new THREE.MeshStandardMaterial({ color: 0xeee6f3, roughness: 0.45, map: pl.map, normalMap: pl.normalMap, normalScale: new THREE.Vector2(0.2, 0.2) });
+  // turned marble pedestal: plinth, fluted-looking shaft, gold collar
+  const column = new THREE.Mesh(
+    new THREE.LatheGeometry(
+      [[0, 0], [0.16, 0], [0.16, 0.06], [0.13, 0.09], [0.12, 0.13], [0.09, 0.18], [0.085, 0.75], [0.11, 0.8], [0.12, 0.86], [0.14, 0.9], [0, 0.9]].map(([x, y]) => new THREE.Vector2(x, y)),
+      24,
+    ),
+    stone,
+  );
   group.add(column);
-  const capital = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.04, 0.26), goldMat());
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.088, 0.012, 8, 32), goldMat());
+  collar.rotation.x = Math.PI / 2;
+  collar.position.y = 0.2;
+  group.add(collar);
+  const capital = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.045, 0.26, 2, 0.012), goldMat());
   capital.position.y = 0.92;
   group.add(capital);
   const buttons: PokeButton[] = (["reset", "clear"] as const).map((id, k) => {
@@ -577,7 +644,9 @@ export const DEFAULT_PUZZLE_LAYOUT: ReadonlyArray<SceneObject> = [
   obj("table-gramophone", "Round table (gramophone)", "round-table", [-0.85, 0, -1.25]),
   obj("rug", "Royal rug", "royal-rug", [0, 0, -0.9]),
   obj("lantern-l", "Wall lantern L", "wall-lantern", [-1.62, 1.75, ROOM.minZ]),
-  obj("lantern-r", "Wall lantern R", "wall-lantern", [1.62, 1.75, ROOM.minZ]),
+  // Right lantern sits above the dresser: the tool rack fills its old spot
+  // beside the painting.
+  obj("lantern-r", "Wall lantern R", "wall-lantern", [ROOM.maxX, 1.75, 0.6], -90),
   obj("banner-l", "Royal banner L", "royal-banner", [-1.95, 2.85, ROOM.minZ]),
   obj("banner-r", "Royal banner R", "royal-banner", [1.95, 2.85, ROOM.minZ]),
   obj("column-l", "Stone column L", "stone-column", [-2.3, 0, -2.4]),

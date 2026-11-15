@@ -37,13 +37,22 @@ function prepare(src: THREE.BufferGeometry, world: THREE.Matrix4): THREE.BufferG
  *  material). `target` must sit at the world origin with identity transform.
  *  Sources are removed from the scene and their geometries disposed. */
 export function batchStatic(target: THREE.Object3D, sources: THREE.Object3D[]): BatchStats {
-  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  // Grouped per material AND shadow flags, so a piece's cast/receive choice
+  // (set before batching) survives the merge.
+  const byMat = new Map<string, { material: THREE.Material; cast: boolean; receive: boolean; geos: THREE.BufferGeometry[] }>();
   let meshesIn = 0;
   let skipped = 0;
   const done: THREE.Mesh[] = [];
+  // Non-mesh renderables (glow halos, dust motes, lights) can't be merged;
+  // they are kept and re-parented to the target with their world transform.
+  const keep: THREE.Object3D[] = [];
   for (const root of sources) {
     root.updateWorldMatrix(true, true);
     root.traverse((o) => {
+      if ((o as THREE.Sprite).isSprite || (o as THREE.Points).isPoints || (o as THREE.Light).isLight) {
+        keep.push(o);
+        return;
+      }
       const m = o as THREE.Mesh;
       if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || (m as THREE.SkinnedMesh).isSkinnedMesh) return;
       if (!m.visible || Array.isArray(m.material)) {
@@ -51,9 +60,10 @@ export function batchStatic(target: THREE.Object3D, sources: THREE.Object3D[]): 
         return;
       }
       meshesIn++;
-      let list = byMat.get(m.material);
-      if (!list) byMat.set(m.material, (list = []));
-      list.push(prepare(m.geometry, m.matrixWorld));
+      const key = `${m.material.uuid}|${m.castShadow ? 1 : 0}${m.receiveShadow ? 1 : 0}`;
+      let entry = byMat.get(key);
+      if (!entry) byMat.set(key, (entry = { material: m.material, cast: m.castShadow, receive: m.receiveShadow, geos: [] }));
+      entry.geos.push(prepare(m.geometry, m.matrixWorld));
       done.push(m);
     });
   }
@@ -61,9 +71,10 @@ export function batchStatic(target: THREE.Object3D, sources: THREE.Object3D[]): 
     m.removeFromParent();
     m.geometry.dispose();
   }
+  for (const o of keep) target.attach(o);
   for (const root of sources) root.removeFromParent();
   let meshesOut = 0;
-  for (const [material, geos] of byMat) {
+  for (const { material, cast, receive, geos } of byMat.values()) {
     const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false);
     if (geos.length > 1) geos.forEach((g) => g.dispose());
     if (!merged) continue;
@@ -71,6 +82,8 @@ export function batchStatic(target: THREE.Object3D, sources: THREE.Object3D[]): 
     merged.computeBoundingBox();
     const mesh = new THREE.Mesh(merged, material);
     mesh.name = `static:${material.name || material.type}`;
+    mesh.castShadow = cast;
+    mesh.receiveShadow = receive;
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
     // Transparent decals (contact shadows, sun patches) draw after the room.
