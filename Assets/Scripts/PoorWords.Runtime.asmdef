@@ -1,0 +1,6 @@
+{
+  "name": "PoorWords.Runtime",
+  "rootNamespace": "PoorWords",
+  "references": ["Unity.InputSystem"],
+  "autoReferenced": true
+}

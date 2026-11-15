@@ -1,0 +1,192 @@
+{
+  "lines": [
+    {
+      "id": "voice",
+      "text": "Oh, thank goodness. I was beginning to think I was a still life."
+    },
+    {
+      "id": "bell_thanks",
+      "text": "And thank you for ringing. It was very quietly reassuring."
+    },
+    {
+      "id": "hammer_thanks",
+      "text": "Excellent. We have established that some problems can be solved with a hammer."
+    },
+    {
+      "id": "intro",
+      "text": "I am Iris. There was a wizard. I criticized his portrait. We have both handled it badly."
+    },
+    {
+      "id": "draw_request",
+      "text": "Right. First, that ribbon. Draw your sword."
+    },
+    {
+      "id": "real_sword",
+      "text": "Yes. That was what I meant. I am as disappointed as you are."
+    },
+    {
+      "id": "real_repeat",
+      "text": "We have established that you own a sword. The ribbon remains unconvinced."
+    },
+    {
+      "id": "drawing",
+      "text": "A sketch? Now? I appreciate the commission, but..."
+    },
+    {
+      "id": "extract",
+      "text": "Oh. You drew your sword."
+    },
+    {
+      "id": "cut",
+      "text": "I hate that this is grammatically defensible."
+    },
+    {
+      "id": "knight_intro",
+      "text": "Of course. A knight. You will have to defeat him."
+    },
+    {
+      "id": "combat",
+      "text": "He appears to have trained extensively against the obvious."
+    },
+    {
+      "id": "still_real",
+      "text": "Still a very real sword."
+    },
+    {
+      "id": "letters_wrong",
+      "text": "We have confused him. An improvement."
+    },
+    {
+      "id": "letters_empty",
+      "text": "Anonymous, but still employed."
+    },
+    {
+      "id": "night",
+      "text": "You did not defeat the knight. You deleted his first letter."
+    },
+    {
+      "id": "rule",
+      "text": "Wait. The words are not describing the curse. They are controlling it. Right. No more sensible instructions."
+    },
+    {
+      "id": "bridge_request",
+      "text": "We need a drawbridge. No. We need something drawn that can be a bridge."
+    },
+    {
+      "id": "early_crank",
+      "text": "Perfect. If I were a biscuit."
+    },
+    {
+      "id": "new_bridge",
+      "text": "Possibly. Though you have already drawn something long enough."
+    },
+    {
+      "id": "sword_bridge",
+      "text": "A sword laid flat. Yes. A bridge with an unnecessarily aggressive handle."
+    },
+    {
+      "id": "lower",
+      "text": "Lower the drawn bridge."
+    },
+    {
+      "id": "crossed",
+      "text": "I am getting good at this. That worries me."
+    },
+    {
+      "id": "door_request",
+      "text": "I am at the edge. But it is still a painting. Then stop making it a painting. Draw me a way out."
+    },
+    {
+      "id": "wrong_door",
+      "text": "Lovely door. Wrong prison."
+    },
+    {
+      "id": "inside_door",
+      "text": "That would get me out of the castle. I need to get out of the picture."
+    },
+    {
+      "id": "frame",
+      "text": "Yes. Around the whole thing."
+    },
+    {
+      "id": "handle",
+      "text": "A painting of a princess, or a door with a princess behind it."
+    },
+    {
+      "id": "open",
+      "text": "I much prefer your interpretation."
+    },
+    {
+      "id": "brave",
+      "text": "Thank you. You have been very brave."
+    },
+    {
+      "id": "equipped",
+      "text": "And remarkably well equipped for a different game."
+    },
+    {
+      "id": "keep",
+      "text": "Keep that. If anyone asks, it is a sword."
+    },
+    {
+      "id": "art",
+      "text": "Only art may alter art. We need the charcoal version."
+    },
+    {
+      "id": "premature",
+      "text": "One absurdity at a time. We still have something in the way."
+    },
+    {
+      "id": "hint_1_0",
+      "text": "Apparently the ribbon requires an artistic response."
+    },
+    {
+      "id": "hint_1_1",
+      "text": "There is charcoal beside that drawing board."
+    },
+    {
+      "id": "hint_1_2",
+      "text": "Try drawing a sword. I cannot believe I am recommending this."
+    },
+    {
+      "id": "hint_2_0",
+      "text": "We changed silence by changing the sign. Perhaps his job title is negotiable."
+    },
+    {
+      "id": "hint_2_1",
+      "text": "His name is one letter away from something else."
+    },
+    {
+      "id": "hint_2_2",
+      "text": "Take the K out of knight."
+    },
+    {
+      "id": "hint_3_0",
+      "text": "Something we have already drawn. Long, flat, and currently being used rather narrowly."
+    },
+    {
+      "id": "hint_3_1",
+      "text": "Try laying the charcoal sword across those supports."
+    },
+    {
+      "id": "hint_3_2",
+      "text": "Now lower it with the crank."
+    },
+    {
+      "id": "hint_4_0",
+      "text": "A door drawn inside a painting is still inside a painting."
+    },
+    {
+      "id": "hint_4_1",
+      "text": "Look at the frame. Hinges on one side. Something missing on the other."
+    },
+    {
+      "id": "hint_4_2",
+      "text": "Trace the outside of the frame. Draw a handle. Open the painting."
+    },
+    {
+      "id": "hint_5_0",
+      "text": "There is a handle now. Give it a pull."
+    }
+  ]
+}
