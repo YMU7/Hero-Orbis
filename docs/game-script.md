@@ -1,5 +1,10 @@
 # HERO — Princess Rescue: Game Script
 
+> Historical 2026-11-14 script. The current 2026-11-15 branching puzzles,
+> final hand interaction, dialogue timings and verification notes are in
+> [rescue-script.md](rescue-script.md); exact current lines are in
+> `app/puzzle/lib/rescueDialogue.json`.
+
 Exported from the live game code (`rescueRoom.ts`, `unityRoom.ts`, `PuzzleApp.tsx`,
 `rescueDialogue.json`, `rescueBarks.json`, `puzzleConfig.ts`) on 2026-11-14.
 

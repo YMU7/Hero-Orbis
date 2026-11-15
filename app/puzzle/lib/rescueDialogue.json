@@ -7,7 +7,7 @@
   {
     "id": "unmuted",
     "cue": "Her face lights up with a big bright smile; she gives cheerful little hops and claps her small hands with joy. Her face stays soft, smooth and youthful. The camera does not move.",
-    "text": "Thank you hero! When I found out I would be voiceless until someone broke the silence, I didn't think that this is what they meant. I was trapped here by an evil witch when I criticized her artwork. To be fair it was really awful. Anyways, time to rescue me. Draw your sword!"
+    "text": "Thank you hero! When I found out I would be voiceless until someone broke the silence, I didn't think that this is what they meant. I was trapped here by an evil witch when I criticized her artwork. To be fair it was really awful. One thing about this spell: pictures can enter my world, and my magic can enter yours. Anyways, time to rescue me. Draw your sword!"
   },
   {
     "id": "melted",
@@ -50,8 +50,18 @@
     "text": "Excellent."
   },
   {
+    "id": "helping",
+    "cue": "She holds a shining golden key, then leans close to the viewer with one open palm pressed against the invisible surface, hopeful and smiling. The camera does not move.",
+    "text": "The key fits! There's just one thing left. Give me a hand? Put yours against mine."
+  },
+  {
+    "id": "clever-photo",
+    "cue": "",
+    "text": "You understood that MUCH faster than the last knight."
+  },
+  {
     "id": "escaped",
-    "cue": "She holds up a small shining golden key in one hand and beams with joy, waves goodbye to the viewer, then turns and skips happily away along the garden path toward the distant castle. The camera does not move.",
-    "text": "I'm free! Thank you, hero. And just between us... your sword drawing was even worse than the witch's art."
+    "cue": "The sunlit garden terrace is now empty; the princess has stepped out of view toward the viewer, leaving the flowers and distant castle behind. The camera does not move.",
+    "text": "Oh! You're much taller in three dimensions. I'm free! Thank you, hero. I'm hanging your sword drawing in the royal gallery. The curator will be furious."
   }
 ]

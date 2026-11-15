@@ -553,9 +553,10 @@ function mergeByMaterial(root: THREE.Object3D) {
   }
 }
 
-export type PokeButton = { id: "reset" | "clear"; mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; base: THREE.Color; armed: boolean; flashUntil: number; tex: ReturnType<typeof makeCanvasTex> };
+export type PokeButton = { id: "reset" | "clear" | "hint"; mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; base: THREE.Color; armed: boolean; flashUntil: number; tex: ReturnType<typeof makeCanvasTex> };
 
-/** Stone pedestal with the RESET poke button; origin on the floor. */
+/** Stone pedestal with the RESET and HINT poke buttons (CLEAR removed: the
+ *  easel eraser clears the canvas); origin on the floor. */
 export function buildPedestal() {
   const group = new THREE.Group();
   const pl = plasterSet([1, 2]);
@@ -573,21 +574,19 @@ export function buildPedestal() {
   collar.rotation.x = Math.PI / 2;
   collar.position.y = 0.2;
   group.add(collar);
-  const capital = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.045, 0.26, 2, 0.012), goldMat());
+  const capital = new THREE.Mesh(new RoundedBoxGeometry(0.48, 0.045, 0.26, 2, 0.012), goldMat());
   capital.position.y = 0.92;
   group.add(capital);
-  // RESET only (2026-11-15): the CLEAR button was removed; the easel eraser
-  // still clears the canvas.
-  const buttons: PokeButton[] = (["reset"] as const).map((id) => {
-    const base = new THREE.Color(id === "reset" ? 0xc0392b : 0x2b6cc0);
+  const buttons: PokeButton[] = (["reset", "hint"] as const).map((id, k) => {
+    const base = new THREE.Color(id === "reset" ? 0xc0392b : 0xc08b2b);
     const mat = new THREE.MeshStandardMaterial({ color: base, roughness: 0.4 });
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.03, 24), mat);
-    mesh.position.set(0, 0.955, 0);
+    mesh.position.set((k - 0.5) * 0.15, 0.955, 0);
     group.add(mesh);
     const tex = makeCanvasTex(256, 96);
-    paint(tex, "#3a2a4a", [{ text: id === "reset" ? "RESET" : "CLEAR", font: "bold 60px sans-serif", color: "#ffffff" }]);
+    paint(tex, "#3a2a4a", [{ text: id.toUpperCase(), font: "bold 60px sans-serif", color: "#ffffff" }]);
     const label = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.045), new THREE.MeshBasicMaterial({ map: tex.tex, toneMapped: false }));
-    label.position.set(0, 0.945, 0.135);
+    label.position.set((k - 0.5) * 0.15, 0.945, 0.135);
     label.rotation.x = -0.3;
     group.add(label);
     return { id, mesh, mat, base, armed: true, flashUntil: 0, tex };

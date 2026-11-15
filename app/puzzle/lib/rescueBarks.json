@@ -1,21 +1,121 @@
 [
-  { "id": "hint-melted-1", "kind": "hint", "stage": "melted", "text": "There's an easel and a crayon over there. Maybe you could draw a sword?" },
-  { "id": "hint-melted-2", "kind": "hint", "stage": "melted", "text": "Draw. A. Sword. On the easel, hero!" },
-  { "id": "hint-drawn-1", "kind": "hint", "stage": "drawn", "text": "That box is hanging from a rope. Try your shiny new sword on it!" },
-  { "id": "hint-drawn-2", "kind": "hint", "stage": "drawn", "text": "Swing your sword at the rope above the box!" },
-  { "id": "hint-rope-1", "kind": "hint", "stage": "rope", "text": "Catch my fireball! Don't worry, it won't burn you." },
-  { "id": "hint-rope-2", "kind": "hint", "stage": "rope", "text": "Grab the fireball and hold it against the rope!" },
-  { "id": "hint-key-1", "kind": "hint", "stage": "key", "text": "Bring the key up to me. Right here, to the picture!" },
-  { "id": "hint-key-2", "kind": "hint", "stage": "key", "text": "Touch the key to the picture, hero!" },
-  { "id": "hint-rejected-1", "kind": "hint", "stage": "rejected", "text": "If only we had a picture of the key. Is that a camera over there?" },
-  { "id": "hint-rejected-2", "kind": "hint", "stage": "rejected", "text": "Pick up the camera and take a photo of the key!" },
-  { "id": "hint-photo-1", "kind": "hint", "stage": "photo", "text": "Ooh, a photograph! Now bring it to me." },
-  { "id": "hint-photo-2", "kind": "hint", "stage": "photo", "text": "Put the photo into the picture, hero!" },
-  { "id": "quip-small", "kind": "quip", "text": "That's a little small for a sword. Bigger, hero!" },
-  { "id": "quip-baguette", "kind": "quip", "text": "Hmm. Is that a baguette?" },
-  { "id": "quip-butter", "kind": "quip", "text": "I've seen scarier butter knives." },
-  { "id": "quip-witch", "kind": "quip", "text": "Even the witch draws better than that. Try again!" },
-  { "id": "box-poke", "kind": "quip", "text": "It's tied up, silly. Deal with the rope first!" },
-  { "id": "glass-sword", "kind": "quip", "text": "Don't bother, that glass is sword-proof. The witch thought of everything." },
-  { "id": "glass-hammer", "kind": "quip", "text": "Hammer-proof glass, hero. She really did think of everything." }
+  {
+    "id": "hint-melted-1",
+    "kind": "hint",
+    "stage": "melted",
+    "text": "There's an easel and a crayon over there. Maybe you could draw a sword?"
+  },
+  {
+    "id": "hint-melted-2",
+    "kind": "hint",
+    "stage": "melted",
+    "text": "Draw. A. Sword. On the easel, hero!"
+  },
+  {
+    "id": "hint-drawn-1",
+    "kind": "hint",
+    "stage": "drawn",
+    "text": "That box is hanging from a rope. Try your shiny new sword on it!"
+  },
+  {
+    "id": "hint-drawn-2",
+    "kind": "hint",
+    "stage": "drawn",
+    "text": "Swing your sword at the rope above the box!"
+  },
+  {
+    "id": "hint-rope-1",
+    "kind": "hint",
+    "stage": "rope",
+    "text": "Catch my fireball! Don't worry, it won't burn you."
+  },
+  {
+    "id": "hint-rope-2",
+    "kind": "hint",
+    "stage": "rope",
+    "text": "Grab the fireball and hold it against the rope!"
+  },
+  {
+    "id": "hint-key-1",
+    "kind": "hint",
+    "stage": "key",
+    "text": "Bring the key up to me. Right here, to the picture!"
+  },
+  {
+    "id": "hint-key-2",
+    "kind": "hint",
+    "stage": "key",
+    "text": "Touch the key to the picture, hero!"
+  },
+  {
+    "id": "hint-rejected-1",
+    "kind": "hint",
+    "stage": "rejected",
+    "text": "If only we had a picture of the key. Is that a camera over there?"
+  },
+  {
+    "id": "hint-rejected-2",
+    "kind": "hint",
+    "stage": "rejected",
+    "text": "Pick up the camera and take a photo of the key!"
+  },
+  {
+    "id": "hint-photo-1",
+    "kind": "hint",
+    "stage": "photo",
+    "text": "Ooh, a photograph! Now bring it to me."
+  },
+  {
+    "id": "hint-photo-2",
+    "kind": "hint",
+    "stage": "photo",
+    "text": "Put the photo into the picture, hero!"
+  },
+  {
+    "id": "quip-small",
+    "kind": "quip",
+    "text": "That's a little small for a sword. Bigger, hero!"
+  },
+  {
+    "id": "quip-baguette",
+    "kind": "quip",
+    "text": "Hmm. Is that a baguette?"
+  },
+  {
+    "id": "quip-butter",
+    "kind": "quip",
+    "text": "I've seen scarier butter knives."
+  },
+  {
+    "id": "quip-witch",
+    "kind": "quip",
+    "text": "Even the witch draws better than that. Try again!"
+  },
+  {
+    "id": "box-poke",
+    "kind": "quip",
+    "text": "It's tied up, silly. Deal with the rope first!"
+  },
+  {
+    "id": "glass-sword",
+    "kind": "quip",
+    "text": "Don't bother, that glass is sword-proof. The witch thought of everything."
+  },
+  {
+    "id": "glass-hammer",
+    "kind": "quip",
+    "text": "Hammer-proof glass, hero. She really did think of everything."
+  },
+  {
+    "id": "hint-helping-1",
+    "kind": "hint",
+    "stage": "helping",
+    "text": "My hand is right here. Touch the glowing handprint!"
+  },
+  {
+    "id": "hint-helping-2",
+    "kind": "hint",
+    "stage": "helping",
+    "text": "Put your hand or controller against the gold handprint on the painting!"
+  }
 ]

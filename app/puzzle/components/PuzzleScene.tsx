@@ -80,7 +80,7 @@ export type PuzzleSceneProps = {
   wrongFlashUntil: number;
   swordFlashUntil: number;
   onStrokeEnd: (strokes: ReadonlyArray<Stroke>, source: string) => void;
-  onButton: (id: "reset" | "clear", detail: string) => void;
+  onButton: (id: "reset" | "clear" | "hint", detail: string) => void;
   onSound: (on: boolean) => void;
   /** The layout the room was built from (puzzle components live on it). */
   onLayout: (layout: SceneObject[]) => void;
@@ -346,9 +346,10 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const r = el.getBoundingClientRect();
       ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
       raycaster.setFromCamera(ndc, camera);
-      const targets: THREE.Object3D[] = [board.mesh, unity.mute, ...physics.tools.filter(t=>t.object.visible && unity.rescue.canGrab(t)).map(t=>t.object), ...buttons.map((b) => b.mesh), ...(unity.rescue.glass.visible ? [unity.rescue.glass] : [])];
+      const targets: THREE.Object3D[] = [...(unity.rescue.finale.touchable ? [unity.rescue.finale.hand] : []), board.mesh, unity.mute, ...physics.tools.filter(t=>t.object.visible && unity.rescue.canGrab(t)).map(t=>t.object), ...buttons.map((b) => b.mesh), ...(unity.rescue.glass.visible ? [unity.rescue.glass] : [])];
       const hit = raycaster.intersectObjects(targets, true)[0];
       if (!hit) return null;
+      for(let o:THREE.Object3D|null=hit.object;o;o=o.parent)if(o===unity.rescue.finale.hand)return {kind:'finale' as const,p:hit.point};
       if (hit.object === board.mesh && hit.uv) return { kind: "board" as const, p: board.uvToBoard(hit.uv) };
       for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) if (o === unity.rescue.glass) return { kind: "box" as const };
       const b = buttons.find((x) => x.mesh === hit.object);
@@ -363,8 +364,8 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     let mouseDrawing = false;
     const onDown = (ev: PointerEvent) => {
       if (renderer.xr.isPresenting || ev.button !== 0) return;
+      const h=pick(ev);if(h?.kind==='finale'){unity.rescue.touchFinale(h.p);return;}
       if(desktopTool){if(desktopTool===unity.rescue.camera&&unity.rescue.shoot())return;desktopTool.release(desktop);desktopTool=null;return;}
-      const h = pick(ev);
       if (!h) return;
       if(h.kind==='tool'){updateDesktop();desktop.point.copy(h.tool.object.position);if(h.tool.tryGrab(desktop)){desktopTool=h.tool;}return;}
       if(h.kind==='box'){unity.rescue.poke(null);return;}
@@ -534,6 +535,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       physics.update(dt);
       physics.highlight(hands.grabbers);
       unity.update(dt);
+      if(renderer.xr.isPresenting)for(const g of hands.grabbers)if(g.tracked)unity.rescue.touchFinale(g.poke,g);
       // Poke buttons with a fingertip (hands) or the controller tip.
       if (renderer.xr.isPresenting) {
         for (const b of buttons) {
