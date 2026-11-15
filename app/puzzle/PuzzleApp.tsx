@@ -388,7 +388,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   useEffect(() => {
     const timers: Array<ReturnType<typeof setTimeout>> = [];
     if (stage === "silence") {
-      timers.push(setTimeout(() => flashHint("That red seal under the painting looks fragile… try the hammer.", 9000), SILENCE_NUDGE_MS));
+      timers.push(setTimeout(() => flashHint("That crystal seal under the painting looks fragile… try the hammer.", 9000), SILENCE_NUDGE_MS));
     }
     BARKS.filter((b) => b.kind === "hint" && b.stage === stage).forEach((h, i) => {
       const attempt = () => {
@@ -557,7 +557,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const hudLines = [
     `${mode === "mock" ? "MOCK" : "LIVE"} · ${ps.phase} · run #${ps.run} · chunk ${d.currentChunk ?? "-"} · solved ${ps.solved.length}/${ps.setup.puzzles.length}`,
     `sound ${ps.soundOn ? "ON" : "off"} · strokes ${ps.strokeCount} · ${res ? (res.isSword ? `SWORD ${res.score.toFixed(2)}` : res.reason) : "-"}`,
-    `pen ${ps.crayonHolder ?? "released"} · ${ps.drawMode} · hammer the red seal to hear her`,
+    `pen ${ps.crayonHolder ?? "released"} · ${ps.drawMode} · hammer the crystal seal to hear her`,
     `fps ${vh?.renderFps ?? "-"}  dec ${vh?.decodedFps ?? "-"}  tex ${vh?.texFps ?? "-"}/s${vh?.fallback ? "  FALLBACK" : ""}`,
     d.lastCommandError ? `ERR ${d.lastCommandError}` : ps.lastError ? `ERR ${ps.lastError}` : "no errors",
   ];
@@ -620,7 +620,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
           </div>
         )}
         <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-[11px] text-zinc-300">
-          /puzzle · desktop: drag on the easel canvas to draw · click the mute symbol to strike · click tools to carry/drop · Space to shoot camera · WASD move · arrows look · VR: pinch/grip to grab, left stick move, right stick smooth turn
+          /puzzle · desktop: drag on the easel canvas to draw · click the crystal seal to strike · click tools to carry/drop · Space to shoot camera · WASD move · arrows look · VR: pinch/grip to grab, left stick move, right stick smooth turn
         </div>
       </main>
       <aside className="w-full overflow-y-auto p-3 lg:h-full lg:w-[420px] lg:shrink-0">

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { ROOM } from "../puzzleConfig";
+import { clampToRoom } from "../puzzleConfig";
 
 /** Move all XR spaces together and turn smoothly about the actual head. */
 export class RoomMovement {
@@ -49,8 +49,10 @@ export class RoomMovement {
     const motion = forward.multiplyScalar(-y).addScaledVector(right, x).clampLength(0, 1).multiplyScalar(2 * dt);
     // Keep the head/body 20 cm inside the room shell. Physical room-scale
     // safety remains the headset's guardian boundary.
-    this.rig.position.x += THREE.MathUtils.clamp(headPos.x + motion.x, ROOM.minX + 0.2, ROOM.maxX - 0.2) - headPos.x;
-    this.rig.position.z += THREE.MathUtils.clamp(headPos.z + motion.z, ROOM.minZ + 0.2, ROOM.maxZ - 0.2) - headPos.z;
+    // Octagon: clamp against all eight walls (diagonals included).
+    const [nx, nz] = clampToRoom(headPos.x + motion.x, headPos.z + motion.z, 0.2);
+    this.rig.position.x += nx - headPos.x;
+    this.rig.position.z += nz - headPos.z;
   }
   reset() { this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0); this.keys.clear(); }
   dispose() {

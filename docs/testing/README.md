@@ -4,6 +4,7 @@
 |---|---|---|
 | [quest3-device.md](quest3-device.md) | Physical Meta Quest 3, Meta Quest Browser | Yes |
 | [desktop-and-emulator.md](desktop-and-emulator.md) | Desktop Chromium; Meta IWER Quest 3 emulation | No |
+| [art-octagon.md](art-octagon.md) | `/puzzle` octagon art pass: Node tests, desktop Chromium (mock) | No |
 
 ## Conventions
 

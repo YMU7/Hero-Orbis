@@ -52,7 +52,12 @@ test('rescue follows player actions, rejects shortcuts, and resets every prop', 
   const line=(ax,ay,bx,by)=>Array.from({length:31},(_,i)=>({x:ax+(bx-ax)*i/30,y:ay+(by-ay)*i/30}));
   board.strokes=[line(0,-.15,0,.15),line(-.05,-.1,.05,-.1)];room.update(.01);assert.equal(r.stage,'drawn');assert.equal(room.reward.object.visible,true);
   const lensDirection=new THREE.Vector3(0,0,-1).applyQuaternion(r.camera.object.quaternion);
-  assert.ok(lensDirection.z>.99,'camera lens faces the player by default');
+  // Octagon layout: the portrait box sits on the front-left table with its
+  // lens level and turned toward the player's start (the origin when the
+  // painting is at its default (0, 1.75, -2.55)), i.e. away from the wall.
+  const boxHome=r.camera.object.position.clone().add(new THREE.Vector3(0,1.75,-2.55).sub(painting.position));
+  const toStart=new THREE.Vector3(-boxHome.x,0,-boxHome.z).normalize();
+  assert.ok(Math.abs(lensDirection.y)<1e-6&&lensDirection.dot(toStart)>.99,'portrait box lens faces the player start');
   grab(room.reward);move(room.reward,r.rope.position.clone().add(new THREE.Vector3(0,0,.45)));room.update(.01);
   assert.equal(r.stage,'rope');assert.equal(r.fire.object.visible,false);
   room.update(1.49);assert.equal(r.fire.object.visible,false,'buffer before fireball appears');
@@ -70,7 +75,7 @@ test('rescue follows player actions, rejects shortcuts, and resets every prop', 
   assert.deepEqual(events,['unmuted','melted','drawn','rope','released','fire','key','rejected','photo','escaped']);
   assert.ok(r.rescueSeconds!==null&&r.rescueSeconds>0,'rescue time measured from breaking the silence');
   physics.reset();room.reset();assert.equal(r.stage,'silence');assert.equal(r.glass.visible,true);assert.equal(r.rope.visible,true);assert.equal(r.fire.object.visible,false);assert.equal(room.reward.object.visible,false);
-  assert.ok(new THREE.Vector3(0,0,-1).applyQuaternion(r.camera.object.quaternion).z>.99,'reset keeps camera facing player');
+  assert.ok(new THREE.Vector3(0,0,-1).applyQuaternion(r.camera.object.quaternion).dot(lensDirection)>.99,'reset keeps camera facing player');
  } finally {room.dispose();physics.dispose();}
 });
 

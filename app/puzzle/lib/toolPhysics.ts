@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { Grabber } from "./handInput";
-import { ROOM } from "../puzzleConfig";
+import { roomWalls } from "../puzzleConfig";
 
 /** One fixed-step physics world for room tools. Held tools are kinematic;
  * released tools inherit the last 100 ms of hand motion, capped at 8 m/s. */
@@ -14,10 +14,13 @@ export class ToolPhysics {
     const box = (x: number, y: number, z: number, hx: number, hy: number, hz: number) =>
       this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setFriction(0.7));
     box(0, -0.1, 0, 10, 0.1, 10);
-    box(ROOM.minX - 0.1, 1.6, 0, 0.1, 3, 10);
-    box(ROOM.maxX + 0.1, 1.6, 0, 0.1, 3, 10);
-    box(0, 1.6, ROOM.minZ - 0.1, 10, 3, 0.1);
-    box(0, 1.6, ROOM.maxZ + 0.1, 10, 3, 0.1);
+    // Eight octagon walls: 0.1 m thick slabs just behind each wall surface,
+    // a little longer than the wall so the 135° corners have no gaps.
+    for (const w of roomWalls()) {
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), w.yaw);
+      const c = new THREE.Vector3(0, 0, -0.1).applyQuaternion(q).add(new THREE.Vector3(w.x, 1.6, w.z));
+      this.world.createCollider(RAPIER.ColliderDesc.cuboid(w.length / 2 + 0.3, 3, 0.1).setTranslation(c.x, c.y, c.z).setRotation(q).setFriction(0.7));
+    }
   }
   add(object: THREE.Object3D, half: THREE.Vector3, offset = new THREE.Vector3()) {
     const tool = new PhysicalTool(this.world, object, half, offset);

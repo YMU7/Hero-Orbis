@@ -9,6 +9,7 @@ import type { SoundId } from './roomAudio';
 import { BOARD_H, ROOM } from '../puzzleConfig';
 import type { DrawingBoard } from './drawingBoard';
 import { lookQuality } from './lookdev';
+import { RESCUE_LAYOUT } from '../roomLayout';
 
 const material = (color: number, metalness = 0) => new THREE.MeshStandardMaterial({color, metalness, roughness: 0.55});
 function block(g: THREE.Group, size: number[], p: number[], m: THREE.Material) {
@@ -83,7 +84,7 @@ export class RescueRoom {
  constructor(private physics: ToolPhysics, private painting: THREE.Group, private board: DrawingBoard, private room: UnityRoom, private emit: (beat: RescueBeat) => void | Promise<void>) {
   const gold=material(0xdab45a,.7), wood=material(0x8a5520), dark=material(0x253b68);
   const position=(x:number,y:number,z:number)=>painting.localToWorld(new THREE.Vector3(x,y,z));
-  this.rope.position.copy(position(-1.65,.15,.5));
+  this.rope.position.copy(position(...RESCUE_LAYOUT.rope)); // octagon layout: beside the front-left window
   const bottom=-.55, top=ROOM.height-this.rope.position.y;
   const ropeLength=top-bottom;
   // Three twisted hemp strands give the cord a readable braided silhouette.
@@ -99,7 +100,7 @@ export class RescueRoom {
   const anchor=new THREE.Mesh(new THREE.TorusGeometry(.055,.012,8,20),gold);anchor.rotation.x=Math.PI/2;anchor.position.y=top-.012;this.rope.add(anchor);
   for(let i=0;i<3;i++){const knot=new THREE.Mesh(new THREE.TorusGeometry(.025,.009,6,16),wood);knot.rotation.x=Math.PI/2;knot.position.y=bottom+.025+i*.017;this.rope.add(knot);}
   this.group.add(this.rope);
-  this.glass.position.copy(position(-1.65,-.62,.5)); this.glassHome=this.glass.position.clone();
+  this.glass.position.copy(position(...RESCUE_LAYOUT.glass)); this.glassHome=this.glass.position.clone();
   const crystal=new THREE.MeshStandardMaterial({color:0xb8e8ff,transparent:true,opacity:.28,roughness:.12,metalness:.1,side:THREE.DoubleSide});
   block(this.glass,[.48,.40,.40],[0,0,0],crystal);
   for(const y of [-.21,.21]) block(this.glass,[.5,.025,.42],[0,y,0],gold);
@@ -117,8 +118,10 @@ export class RescueRoom {
   this.flashLight=new THREE.PointLight(0xfff6e0,0,3);this.flashLight.position.set(0,0,-.2);if(lookQuality()==="ultra")camera.add(this.flashLight); // high/low: the flash disc alone (an idle point light still costs per pixel)
   this.flashDisc=new THREE.Mesh(new THREE.CircleGeometry(.07,24),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide}));
   this.flashDisc.position.set(0,0,-.152);this.flashDisc.visible=false;camera.add(this.flashDisc);
-  camera.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion())).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI));
-  this.camera=make('camera',camera,position(1.72,-.55,.3),new THREE.Vector3(.13,.15,.12));
+  // Magic Portrait Box (art pass): the same hand-held capture tool, resting on
+  // its side table with the lens toward the player's start.
+  camera.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion())).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),RESCUE_LAYOUT.camera.yaw));
+  this.camera=make('camera',camera,position(...RESCUE_LAYOUT.camera.position),new THREE.Vector3(.13,.15,.12));
   const photo=new THREE.Group();block(photo,[.25,.3,.014],[0,0,0],material(0xfff4d8));block(photo,[.21,.21,.016],[0,.025,0],dark);
   // A raised gold key silhouette remains readable from both sides in VR.
   for(const z of [-.012,.012]) {const miniature=key.clone();miniature.scale.setScalar(.65);miniature.position.set(0,.025,z);photo.add(miniature);}
