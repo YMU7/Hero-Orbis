@@ -1,6 +1,4 @@
 [
-  { "id": "hint-unmuted-1", "kind": "hint", "stage": "unmuted", "text": "Go on, hero. There's a sword hanging on the wall, right beside me!" },
-  { "id": "hint-unmuted-2", "kind": "hint", "stage": "unmuted", "text": "The sword! On the wall! Just grab it!" },
   { "id": "hint-melted-1", "kind": "hint", "stage": "melted", "text": "There's an easel and a crayon over there. Maybe you could draw a sword?" },
   { "id": "hint-melted-2", "kind": "hint", "stage": "melted", "text": "Draw. A. Sword. On the easel, hero!" },
   { "id": "hint-drawn-1", "kind": "hint", "stage": "drawn", "text": "That box is hanging from a rope. Try your shiny new sword on it!" },
@@ -17,6 +15,7 @@
   { "id": "quip-baguette", "kind": "quip", "text": "Hmm. Is that a baguette?" },
   { "id": "quip-butter", "kind": "quip", "text": "I've seen scarier butter knives." },
   { "id": "quip-witch", "kind": "quip", "text": "Even the witch draws better than that. Try again!" },
-  { "id": "early-draw", "kind": "quip", "text": "Ooh, lovely! But shouldn't a hero try the real sword first? It's on the wall." },
-  { "id": "box-poke", "kind": "quip", "text": "It's tied up, silly. Deal with the rope first!" }
+  { "id": "box-poke", "kind": "quip", "text": "It's tied up, silly. Deal with the rope first!" },
+  { "id": "glass-sword", "kind": "quip", "text": "Don't bother, that glass is sword-proof. The witch thought of everything." },
+  { "id": "glass-hammer", "kind": "quip", "text": "Hammer-proof glass, hero. She really did think of everything." }
 ]

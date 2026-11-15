@@ -1,8 +1,9 @@
 "use client";
 
-import { type ReactNode } from "react";
-import { useDebug, type SourceMode } from "../../mvp/lib/debugState";
+import { useRef, type ReactNode } from "react";
+import { debug, useDebug, type DebugState, type SourceMode } from "../../mvp/lib/debugState";
 import { usePuzzleState, puzzleStore } from "../lib/puzzleState";
+type PuzzleState = ReturnType<typeof usePuzzleState.getState>;
 import { DEFAULT_SWORD_PARAMS } from "../lib/swordRecognizer";
 import { StyleTuner } from "./StyleTuner";
 import { MIX_CHANNELS } from "../lib/style";
@@ -50,8 +51,13 @@ export function PuzzlePanel(p: {
   resolution: string | null;
   sources: ReactNode;
 }) {
-  const d = useDebug();
-  const s = usePuzzleState();
+  // Frozen while an immersive session is running: the page is invisible in
+  // the headset, and re-rendering this large panel on every store change
+  // stalled frames on Quest. It catches up when the session ends.
+  const frozenD = useRef<DebugState | null>(null);
+  const frozenS = useRef<PuzzleState | null>(null);
+  const d = useDebug((st) => (st.xrSessionActive ? (frozenD.current ??= st) : ((frozenD.current = null), st)));
+  const s = usePuzzleState((st) => (debug.get().xrSessionActive ? (frozenS.current ??= st) : ((frozenS.current = null), st)));
   const btn = "rounded px-2 py-0.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-35";
   const generating = d.reactorStatus === "ready" && d.started;
   const res = s.lastResult;

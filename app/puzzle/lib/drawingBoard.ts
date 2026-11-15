@@ -10,14 +10,19 @@ import type { Pt, Stroke } from "./swordRecognizer";
 // Painting into a CanvasTexture (instead of THREE.Line) gives thick, visible
 // ink in VR, where WebGL line width is always 1 px.
 
-const PX_PER_M = 1600;
+// 800 px/m (was 1600): every pen frame re-uploads the whole canvas, and on
+// Quest a 1120×880 upload + mipmaps stalled frames (worst at the sword
+// reveal, when the board also repaints green). At easel distance 800 px/m is
+// still sharper than the headset can resolve.
+const PX_PER_M = 800;
+const PX = PX_PER_M / 1600; // pixel sizes below were authored at 1600 px/m
 const MIN_STEP_M = 0.0001; // Unity easel: the first small visible mark earns the reward
 
 export type InkColour = "ink" | "wrong" | "right";
 const COLOURS: Record<InkColour, string> = { ink: "#2b59c3", wrong: "#d8322a", right: "#1f9d55" };
 
 export class DrawingBoard {
-  readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
+  readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   readonly width: number;
   readonly height: number;
   readonly strokes: Stroke[] = [];
@@ -37,10 +42,12 @@ export class DrawingBoard {
     this.ctx = this.canvas.getContext("2d");
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.tex.anisotropy = 4;
+    // No mipmaps: uploaded on every pen frame, and never minified at easel range.
+    this.tex.generateMipmaps = false;
+    this.tex.minFilter = THREE.LinearFilter;
     this.mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(width, height),
-      new THREE.MeshStandardMaterial({ map: this.tex, roughness: 0.95 }),
+      new THREE.MeshBasicMaterial({ map: this.tex, color: 0xf2ece0 }), // unlit (Quest): a canvas needs no lighting
     );
     this.mesh.name = "drawing-board";
     this.repaint();
@@ -123,7 +130,7 @@ export class DrawingBoard {
     const pa = this.toPx(a);
     const pb = this.toPx(b);
     ctx.strokeStyle = COLOURS[this.colour];
-    ctx.lineWidth = 20;
+    ctx.lineWidth = 20 * PX;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
@@ -145,16 +152,16 @@ export class DrawingBoard {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = "rgba(150,130,100,0.35)";
-    ctx.lineWidth = 10;
-    ctx.strokeRect(14, 14, w - 28, h - 28);
+    ctx.lineWidth = 10 * PX;
+    ctx.strokeRect(14 * PX, 14 * PX, w - 28 * PX, h - 28 * PX);
     ctx.fillStyle = "rgba(90,60,25,0.35)";
-    ctx.font = "italic 34px serif";
+    ctx.font = `italic ${Math.round(34 * PX)}px serif`;
     ctx.textAlign = "right";
     ctx.textBaseline = "bottom";
-    ctx.fillText("draw here", w - 36, h - 30);
+    ctx.fillText("draw here", w - 36 * PX, h - 30 * PX);
     // Strokes.
     ctx.strokeStyle = COLOURS[this.colour];
-    ctx.lineWidth = 20;
+    ctx.lineWidth = 20 * PX;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     for (const s of this.strokes) {

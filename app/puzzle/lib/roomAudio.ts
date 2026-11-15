@@ -81,6 +81,66 @@ class RoomAudio {
   private noise: AudioBuffer | null = null;
   readonly log: string[] = [];
 
+  // ── Princess voice clips (public/audio/princess/<id>.wav) ────────────
+  // Decoded once into AudioBuffers and played through WebAudio. Creating an
+  // <audio> element + fetching + starting the media pipeline at a story beat
+  // (sword, fireball…) stalled the Quest right at the big moments.
+  private voiceBufs = new Map<string, Promise<AudioBuffer | null>>();
+  private voiceOut: GainNode | null = null;
+
+  private voiceBuffer(id: string) {
+    let p = this.voiceBufs.get(id);
+    if (!p) {
+      const c = this.ctx!;
+      p = fetch(`/audio/princess/${id}.wav`)
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((ab) => c.decodeAudioData(ab))
+        .catch((e) => {
+          this.log.push(`voice ${id} failed: ${(e as Error).message}`);
+          return null;
+        });
+      this.voiceBufs.set(id, p);
+    }
+    return p;
+  }
+
+  /** Fetch + decode these clips in the background (after unlock). */
+  preloadVoices(ids: readonly string[]) {
+    if (!this.ctx) return;
+    for (const id of ids) void this.voiceBuffer(id);
+  }
+
+  /** Play a voice clip; null when WebAudio isn't running (caller falls back). */
+  playVoice(id: string): { ended: Promise<void>; stop: () => void } | null {
+    const c = this.ctx;
+    if (!c || c.state !== "running" || !this.voiceOut) return null;
+    let src: AudioBufferSourceNode | null = null;
+    let stopped = false;
+    let resolveEnd!: () => void;
+    const ended = new Promise<void>((r) => (resolveEnd = r));
+    void this.voiceBuffer(id).then((buf) => {
+      if (stopped) return;
+      if (!buf) return resolveEnd();
+      src = c.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.voiceOut!);
+      src.onended = () => resolveEnd();
+      src.start();
+    });
+    return {
+      ended,
+      stop: () => {
+        stopped = true;
+        try {
+          src?.stop();
+        } catch {
+          /* not started */
+        }
+        resolveEnd();
+      },
+    };
+  }
+
   /** Call from a user gesture (pointerdown / keydown / XR select). */
   unlock() {
     if (!this.ctx) {
@@ -97,6 +157,9 @@ class RoomAudio {
         g.connect(this.master);
         this.ch[k] = g;
       }
+      // Same loudness as the old <audio> clips (volume 1, not on the mix).
+      this.voiceOut = c.createGain();
+      this.voiceOut.connect(c.destination);
       this.gramPanner = new PannerNode(c, { panningModel: "HRTF", distanceModel: "inverse", refDistance: 0.8, rolloffFactor: 1.2 });
       this.gramPanner.connect(this.ch.objects!);
       this.setPannerPos();

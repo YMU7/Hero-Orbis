@@ -6,6 +6,7 @@ import { Gramophone } from "./gramophone";
 import { DrawingBoard } from "./drawingBoard";
 import type { SceneDoc, SceneObject } from "../../lib/sceneData/types";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { FURNITURE, floorTileTexture, mat, ornateFrame, stoneWallTexture, type FurnitureKind } from "./furniture";
 import { glowHalo, lookQuality, withRoomAO } from "./lookdev";
 import { plasterSet, woodGrainSet } from "./proceduralTextures";
@@ -117,13 +118,16 @@ const goldMat = () => mat("gold");
 // stronger and casts the one static shadow map. Its direction matches the
 // left window's light shaft (lookdev.SUN_LOCAL rotated by the window's 90°).
 export function addRoomLights(scene: THREE.Scene) {
-  const hq = lookQuality() === "high";
+  const q = lookQuality();
+  const hq = q !== "low";
   scene.background = new THREE.Color(0xf3e3cc);
-  scene.add(new THREE.HemisphereLight(0xfff1dc, 0xc7a9d6, hq ? 0.82 : 1.55));
-  const sun = new THREE.DirectionalLight(0xffd8a4, hq ? 2.3 : 1.35);
+  // ultra: the global room environment adds diffuse bounce, so the hemisphere
+  // is low. high (Quest): env only on shiny materials → hemisphere carries it.
+  scene.add(new THREE.HemisphereLight(0xfff1dc, 0xc7a9d6, q === "ultra" ? 0.82 : hq ? 1.2 : 1.55));
+  const sun = new THREE.DirectionalLight(0xffd8a4, q === "ultra" ? 2.3 : hq ? 1.9 : 1.35);
   sun.position.set(-4.25, 5, 1.3);
   sun.name = "sun";
-  if (hq) {
+  if (q === "ultra") {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const c = sun.shadow.camera;
@@ -231,11 +235,11 @@ function rug() {
   const g = new THREE.Group();
   const r = new THREE.Mesh(new THREE.CircleGeometry(1.35, 48), new THREE.MeshStandardMaterial({ color: 0xc95b84, roughness: 1 }));
   r.rotation.x = -Math.PI / 2;
-  r.position.y = 0.004;
+  r.position.y = 0.008;
   g.add(r);
   const ring = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.25, 48), new THREE.MeshStandardMaterial({ color: 0xf2d27a, roughness: 1 }));
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.006;
+  ring.position.y = 0.011;
   g.add(ring);
   return g;
 }
@@ -307,9 +311,13 @@ function sconce() {
   const halo = glowHalo(0xffb45e, 0.35, 0.55);
   halo.position.copy(flame.position);
   g.add(halo);
-  const light = new THREE.PointLight(0xffb45e, 1.4, 5, 1.5);
-  light.position.set(0, 0.25, 0.23);
-  g.add(light);
+  // Point lights are evaluated per pixel in every standard material (Quest):
+  // the flame + halo carry the look, the real light is ultra-only.
+  if (lookQuality() === "ultra") {
+    const light = new THREE.PointLight(0xffb45e, 1.4, 5, 1.5);
+    light.position.set(0, 0.25, 0.23);
+    g.add(light);
+  }
   return g;
 }
 
@@ -459,10 +467,11 @@ export const EASEL_TILT = 0.21; // rad, canvas top leans away from the viewer
 /** Wooden A-frame studio easel; origin on the floor between the front legs,
  *  facing +Z. Returns the tilted canvas mount (the DrawingBoard goes on it). */
 export function buildEasel() {
+  // Deliberately minimal for Quest: two untextured Lambert woods, plain
+  // boxes, merged into one mesh per material at the end (2 draw calls).
   const group = new THREE.Group();
-  const grain = woodGrainSet();
-  const wood = new THREE.MeshStandardMaterial({ color: 0xc07c34, roughness: 0.6, map: grain.map, normalMap: grain.normalMap, normalScale: new THREE.Vector2(0.4, 0.4) });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x8f5a26, roughness: 0.6, map: grain.map, normalMap: grain.normalMap, normalScale: new THREE.Vector2(0.4, 0.4) });
+  const wood = new THREE.MeshLambertMaterial({ color: 0xc07c34, name: "easel-wood" });
+  const dark = new THREE.MeshLambertMaterial({ color: 0x8f5a26, name: "easel-dark" });
   group.add(beam(V(0, 0, 0.256), V(0, 2.05, -0.18), 0.055, 0.035, wood)); // mast
   group.add(beam(V(-0.42, 0, 0.2), V(-0.04, 1.7, -0.1), 0.04, 0.03, wood)); // front legs
   group.add(beam(V(0.42, 0, 0.2), V(0.04, 1.7, -0.1), 0.04, 0.03, wood));
@@ -482,21 +491,43 @@ export function buildEasel() {
   const clamp = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.05), dark);
   clamp.position.set(0, BOARD_H / 2 + 0.02, -0.005);
   mount.add(clamp);
-  const back = new THREE.Mesh(new RoundedBoxGeometry(BOARD_W + 0.03, BOARD_H + 0.03, 0.022, 2, 0.006), dark);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.03, BOARD_H + 0.03, 0.022), dark);
   back.position.z = -0.012;
   mount.add(back);
   // A visible pen clip beside the canvas, above the tray and clear of drawing.
   const penPlate = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.035), dark);
   penPlate.position.set(BOARD_W / 2 + 0.055, 0.08, 0.025);
   mount.add(penPlate);
-  const penClip = new THREE.Mesh(new THREE.TorusGeometry(0.014, 0.003, 6, 16), goldMat());
-  penClip.rotation.x = Math.PI / 2;
-  penClip.position.set(BOARD_W / 2 + 0.055, 0.065, 0.065);
-  mount.add(penClip);
   const eraserPlate = new THREE.Mesh(new THREE.BoxGeometry(.14,.10,.025),dark);
   eraserPlate.position.set(-BOARD_W/2-.055,.08,.025);
   mount.add(eraserPlate);
+  mergeByMaterial(group);
   return { group, mount };
+}
+
+/** Bake every mesh under `root` into one mesh per material in root's space
+ *  (empty child groups such as the easel mount stay for later attachments). */
+function mergeByMaterial(root: THREE.Object3D) {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || Array.isArray(m.material)) return;
+    const g = m.geometry.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
+    (byMat.get(m.material) ?? byMat.set(m.material, []).get(m.material)!).push(g);
+    meshes.push(m);
+  });
+  for (const m of meshes) {
+    m.removeFromParent();
+    m.geometry.dispose();
+  }
+  for (const [material, geos] of byMat) {
+    const merged = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    if (merged) root.add(new THREE.Mesh(merged, material));
+  }
 }
 
 export type PokeButton = { id: "reset" | "clear"; mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; base: THREE.Color; armed: boolean; flashUntil: number; tex: ReturnType<typeof makeCanvasTex> };

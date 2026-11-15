@@ -17,7 +17,7 @@ import type { UnityRoom } from "./unityRoom";
 // along −Z, key bow at +Y, camera lens toward −Z), and leaves every other
 // child alone (grab highlight, camera flash disc/light, fireball light).
 
-const HQ = () => lookQuality() === "high";
+const HQ = () => lookQuality() !== "low";
 
 let M: Record<string, THREE.Material> | null = null;
 function mats() {
@@ -41,6 +41,7 @@ function mats() {
     paper: new THREE.MeshStandardMaterial({ color: 0xfff6e2, roughness: 0.85, name: "photo-paper" }),
     flameOuter: new THREE.MeshStandardMaterial({ color: 0xffb13b, emissive: 0xff5a10, emissiveIntensity: 2.4, roughness: 0.6, flatShading: true, name: "flame-outer" }),
     flameCore: new THREE.MeshBasicMaterial({ color: 0xfff1b0, toneMapped: false, name: "flame-core" }),
+    flameOuterFlat: new THREE.MeshBasicMaterial({ color: 0xff8a24, toneMapped: false, name: "flame-outer-flat" }),
   };
   return M;
 }
@@ -117,8 +118,9 @@ function dressSword(sw: THREE.Object3D, royal: boolean) {
   const len = royal ? 0.71 : 0.49;
   const width = royal ? 0.07 : 0.046;
   part(sw, bladeGeometry(len, width, 0.004), royal ? m.royalSteel : m.steel, [0, 0, start]);
-  // fuller groove / glowing core
-  if (royal) part(sw, rbox(0.014, 0.016, len * 0.78, 0.006), m.royalCore, [0, 0, start - len * 0.42]);
+  // fuller groove / glowing core. The royal core stands ≥ 2.5 mm proud of
+  // the blade (~15 mm thick incl. bevels): 0.4 mm z-fought (flickered) in VR.
+  if (royal) part(sw, rbox(0.014, 0.021, len * 0.78, 0.006), m.royalCore, [0, 0, start - len * 0.42]);
   else part(sw, rbox(0.01, 0.0105, len * 0.7, 0.004), m.steelDark, [0, 0, start - len * 0.38]);
   // cross-guard
   const gw = royal ? 0.24 : 0.2;
@@ -273,23 +275,10 @@ function dressCamera(cam: THREE.Object3D) {
 function dressFire(fire: THREE.Object3D) {
   const m = mats();
   strip(fire);
-  const outer = new THREE.IcosahedronGeometry(0.1, 2);
-  const p = outer.attributes.position as THREE.BufferAttribute;
-  for (let i = 0; i < p.count; i++) {
-    const v = new THREE.Vector3().fromBufferAttribute(p, i);
-    const lift = Math.max(0, v.y / 0.1);
-    const n = 1 + 0.18 * Math.sin(v.x * 70 + v.z * 40) * Math.cos(v.y * 55);
-    v.multiplyScalar(n);
-    v.y += lift * lift * 0.08; // teardrop flame shape
-    v.x *= 1 - lift * 0.35;
-    v.z *= 1 - lift * 0.35;
-    p.setXYZ(i, v.x, v.y, v.z);
-  }
-  outer.computeVertexNormals();
-  part(fire, outer, m.flameOuter);
-  part(fire, new THREE.SphereGeometry(0.055, 16, 12), m.flameCore, [0, -0.01, 0]);
-  const halo = glowHalo(0xff9a3c, 0.7, 0.75);
-  fire.add(halo);
+  // Deliberately minimal for Quest: two low-poly unlit spheres (outer flame +
+  // bright core). No lit/emissive shell, no additive halo sprite near the face.
+  part(fire, new THREE.IcosahedronGeometry(0.1, 1), m.flameOuterFlat, [0, 0, 0], [0, 0, 0], [1, 1.25, 1]);
+  part(fire, new THREE.IcosahedronGeometry(0.055, 1), m.flameCore, [0, -0.01, 0]);
 }
 
 function dressRack(rack: THREE.Object3D) {
@@ -389,8 +378,7 @@ function dressAll(unity: UnityRoom) {
   if (h) dressHammer(h);
   const ws = byName("wall-sword");
   if (ws) dressSword(ws, false);
-  const rs = byName("royal-sword");
-  if (rs) dressSword(rs, true);
+  // royal-sword stays the minimal model from unityRoom (Quest perf).
   const rack = byName("tool-rack");
   if (rack) dressRack(rack);
   const key = byName("golden-key");

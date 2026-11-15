@@ -32,7 +32,7 @@ import {
 } from "../lib/roomParts";
 import { applyTransform, createInstance, fetchScene } from "../../lib/sceneData/environment";
 import { batchStatic } from "../lib/staticBatch";
-import { applyEnvironment, enableShadows, refreshShadows, setupRenderer, tickLook, WALL_PIECES } from "../lib/lookdev";
+import { applyEnvironment, assignEnvMaps, enableShadows, prewarm, refreshShadows, setupRenderer, tickLook, WALL_PIECES } from "../lib/lookdev";
 import { dressProps } from "../lib/propModels";
 import { emptyScene, type SceneObject } from "../../lib/sceneData/types";
 import { BOARD_H, BOARD_W, PUZZLE_SCENE_ID } from "../puzzleConfig";
@@ -120,7 +120,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.02, 30);
+    const camera = new THREE.PerspectiveCamera(70, container.clientWidth / container.clientHeight, 0.04, 30); // near 0.04 (was 0.02): 2× depth precision, less floor-decal flicker in VR
     camera.position.set(0, 1.6, 0.3);
     let yaw = 0;
     let pitch = -0.12;
@@ -200,6 +200,12 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       // Grabbable tools move, so they only receive (a baked shadow would stay behind).
       enableShadows(unity.group, { cast: false });
       refreshShadows(renderer);
+      // Quest tier: reflections only on metal / glossy materials.
+      assignEnvMaps(scene);
+      // Compile all shaders now, so the reward sword, fireball, confetti etc.
+      // don't stall the headset the first time they appear.
+      const warm = prewarm(renderer, scene, camera);
+      debug.push("info", `[puzzle] prewarmed ${warm.programs} programs, ${warm.textures} textures`);
     });
 
     // ── Painting (Orbis stream) + hint + HUD ─────────────────────────────
@@ -434,6 +440,8 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       },
       /** Raw renderer + scene for look-dev debugging in the console. */
       three: () => ({ renderer, scene, camera }),
+      /** Room internals for perf profiling in the console (reward reveal etc.). */
+      room: () => ({ unity, physics }),
       /** Render cost of the last frame (Quest budget checks). */
       renderInfo: () => {
         let meshes = 0;

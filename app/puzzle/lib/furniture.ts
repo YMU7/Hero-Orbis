@@ -3,7 +3,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { dustMotes, glowHalo, lightShaft, lookQuality, sunFloor, WINDOW_OPENING } from "./lookdev";
+import { dustMotes, glowHalo, lightShaft, lookQuality, lookShadows, sunFloor, WINDOW_OPENING } from "./lookdev";
 import { fabricSet, fbm, floorTileSet, plasterSet, stoneWallSet, woodGrainSet, type SurfaceSet } from "./proceduralTextures";
 
 // Phase B — procedural furniture, architecture and decor for the princess
@@ -58,7 +58,7 @@ type MatKey =
 // Look-dev pass: the room now has a baked reflection environment (lookdev.ts),
 // so metals use real metalness; `?quality=low` (no environment) falls back
 // to the old low-metal gold with an emissive lift so it never renders brown.
-const HQ = lookQuality() === "high";
+const HQ = lookQuality() !== "low";
 const std = (p: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial(p);
 const wood = (color: number, roughness: number) => {
   const s = woodGrainSet();
@@ -90,7 +90,7 @@ const MAT_DEF: Record<MatKey, () => THREE.Material> = {
   goldDS: () => std({ ...goldParams(), side: THREE.DoubleSide }),
   curtain: () => fabric(0x7a99e0, 0.9, THREE.DoubleSide),
   // Soft contact shadow under furniture (one alpha-blended quad per piece).
-  shadow: () => new THREE.MeshBasicMaterial({ map: shadowTexture(), color: 0x5a3a28, transparent: true, depthWrite: false, opacity: HQ ? 0.4 : 0.55, toneMapped: false }),
+  shadow: () => new THREE.MeshBasicMaterial({ map: shadowTexture(), color: 0x5a3a28, transparent: true, depthWrite: false, opacity: lookShadows() ? 0.4 : 0.55, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
   wood: () => wood(0xc89259, 0.62),
   woodDark: () => wood(0x96613a, 0.6),
   leaf: () => std({ color: 0x7db560, roughness: 0.75, flatShading: true }),
@@ -188,7 +188,7 @@ class Kit {
 
   /** Soft contact shadow on the floor under a w × d footprint (Phase C). */
   shadow(w: number, d: number, p: [number, number] = [0, 0]) {
-    return this.add(new THREE.PlaneGeometry(w, d), "shadow", { p: [p[0], 0.004, p[1]], r: [-Math.PI / 2, 0, 0] });
+    return this.add(new THREE.PlaneGeometry(w, d), "shadow", { p: [p[0], 0.014, p[1]], r: [-Math.PI / 2, 0, 0] });
   }
 
   /** Non-merged extra object (e.g. a textured plane). */
@@ -1024,7 +1024,7 @@ function royalRug() {
   g.name = "royal-rug";
   const r = new THREE.Mesh(new THREE.CircleGeometry(1.4, 48), new THREE.MeshStandardMaterial({ map: rugTexture(), roughness: 1 }));
   r.rotation.x = -Math.PI / 2;
-  r.position.y = 0.005;
+  r.position.y = 0.008; // floor layers ≥ 4 mm apart (rug 8, shadows 14, sun 18): closer z-fights in VR
   g.add(r);
   return g;
 }
@@ -1063,7 +1063,7 @@ function sunPatch() {
   geo.setIndex([0, 2, 1, 0, 3, 2]);
   geo.computeVertexNormals();
   const m = new THREE.Mesh(geo, sunPatchMat());
-  m.position.y = 0.006;
+  m.position.y = 0.018;
   const g = new THREE.Group();
   g.name = "sun-patch";
   g.add(m);
@@ -1074,7 +1074,7 @@ function sunPatch() {
 
 let _sunPatchMat: THREE.MeshBasicMaterial | null = null;
 const sunPatchMat = () =>
-  (_sunPatchMat ??= new THREE.MeshBasicMaterial({ name: "sun-patch", map: sunPatchTexture(), color: 0xffd9a0, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+  (_sunPatchMat ??= new THREE.MeshBasicMaterial({ name: "sun-patch", map: sunPatchTexture(), color: 0xffd9a0, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
 
 /** Window-pane shaped light with soft edges. */
 function sunPatchTexture() {

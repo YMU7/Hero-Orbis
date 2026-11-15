@@ -12,7 +12,21 @@ function box(g: THREE.Group, size: number[], pos: number[], material: THREE.Mate
   g.add(mesh);
   return mesh;
 }
+/** Royal sword, deliberately minimal for Quest: 4 boxes, Lambert + one unlit
+ *  glowing core. No gems, bevels, halo sprite or reflections, and propModels
+ *  doesn't re-dress it. */
+function royalSword() {
+  const g = new THREE.Group();
+  g.name = "royal-sword";
+  const lam = (color: number) => new THREE.MeshLambertMaterial({ color });
+  box(g, [0.07, 0.018, 0.72], [0, 0, -0.5], lam(0xcfeeff)); // blade
+  box(g, [0.016, 0.024, 0.58], [0, 0, -0.5], new THREE.MeshBasicMaterial({ color: 0x6fd8ff })); // glowing core, 3 mm proud each side
+  box(g, [0.22, 0.035, 0.04], [0, 0, -0.14], lam(0xe0b850)); // guard
+  box(g, [0.035, 0.035, 0.16], [0, 0, -0.04], lam(0x2d4f9a)); // grip
+  return g;
+}
 function sword(royal: boolean) {
+  if (royal) return royalSword();
   const g = new THREE.Group();
   g.name = royal ? "royal-sword" : "wall-sword";
   const gold = mat(0xdab45a, 0.75), steel = mat(royal ? 0xb8e8ff : 0xb4bfcb, 0.8);

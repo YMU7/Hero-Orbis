@@ -1,14 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ViskoOrbisStableProvider, useViskoOrbisStableTrack } from "@reactor-models/visko-orbis-stable";
 import { useOrbisSession } from "../mvp/lib/orbisSession";
 import { bindStream, streamForTrack, watchVideo } from "../mvp/lib/videoBridge";
 import { createMockSource, type MockSource } from "../mvp/lib/mockSource";
 import { debug, useDebug, type SourceMode } from "../mvp/lib/debugState";
+import { useShallow } from "zustand/react/shallow";
+
+/** Skips re-rendering its subtree while `frozen` (the 2D panel during VR:
+ *  invisible in the headset, and its re-renders stalled Quest frames). */
+/** Fallback princess clip through an <audio> element (before WebAudio unlocks). */
+function htmlVoice(id: string): { ended: Promise<void>; stop: () => void } {
+  const a = new Audio("/audio/princess/" + id + ".wav");
+  let end!: () => void;
+  const ended = new Promise<void>((r) => (end = r));
+  a.onended = () => end();
+  a.onerror = () => { debug.push("error", "Princess audio failed: " + id); end(); };
+  void a.play().catch((e: Error) => { debug.push("error", "Princess audio: " + e.message); end(); });
+  return { ended, stop: () => { a.pause(); end(); } };
+}
+
+const FreezeWhile = memo(function FreezeWhile({ children }: { frozen: boolean; children: ReactNode }) {
+  return <>{children}</>;
+}, (_prev, next) => next.frozen);
 import { installQuestEmulatorIfRequested } from "../mvp/lib/xrEmulation";
 import type { VideoHealth } from "../mvp/lib/videoTextureHealth";
 import type { RescueBeat, RescueStage } from './lib/rescueScript';
+import { RESCUE_SCRIPT } from './lib/rescueScript';
 import barks from './lib/rescueBarks.json';
 import { BOARD_H, PUZZLE_RESOLUTION, WRONG_HINT_IDLE_MS } from "./puzzleConfig";
 import { mockLabel, usePuzzleController } from "./lib/usePuzzleController";
@@ -101,7 +120,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const stageRef=useRef<RescueStage>('silence');
   const [ending,setEnding]=useState<{seconds:number}|null>(null);
   const [idleNonce,setIdleNonce]=useState(0);
-  const voices=useRef(new Set<HTMLAudioElement>());
+  const voices=useRef(new Set<{ended:Promise<void>;stop:()=>void}>());
   const voiceQueue=useRef<Promise<void>>(Promise.resolve());
   const voiceRun=useRef(0);
   const voiceBusy=useRef(0);
@@ -109,12 +128,11 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const unmutedAt=useRef<number|null>(null);
   const lastQuipAt=useRef(0);
   const quipIndex=useRef(0);
-  const earlyDrawSaid=useRef(false);
   const smallQuipSaid=useRef(false);
   const stopVoices=useCallback(()=>{
     voiceRun.current++; voiceQueue.current=Promise.resolve(); voiceBusy.current=0;
     if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
-    setSubtitle(''); for(const a of voices.current){a.pause();a.onended?.(new Event('ended'));} voices.current.clear();
+    setSubtitle(''); for(const v of voices.current)v.stop(); voices.current.clear();
   },[]);
   const speak=useCallback((id:string,text:string)=>{
     const run=voiceRun.current;
@@ -123,18 +141,20 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       if(run!==voiceRun.current){resolve();return;}
       if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
       setSubtitle(text);
-      const a=new Audio('/audio/princess/'+id+'.wav');voices.current.add(a);
+      // Preloaded WebAudio buffer (no media pipeline at the beat); <audio> only
+      // before the audio context is unlocked.
+      const v=roomAudio.playVoice(id)??htmlVoice(id);voices.current.add(v);
+      let done=false;
       const finish=()=>{
-        voices.current.delete(a);a.onended=null;a.onerror=null;
+        if(done)return;done=true;
+        voices.current.delete(v);
         if(run===voiceRun.current){
           voiceBusy.current=Math.max(0,voiceBusy.current-1);
           if(voiceBusy.current===0)subtitleTimer.current=setTimeout(()=>{if(voiceBusy.current===0)setSubtitle('');},SUBTITLE_HOLD_MS);
         }
         resolve();
       };
-      a.onended=finish;
-      a.onerror=()=>{debug.push('error','Princess audio failed: '+id);finish();};
-      void a.play().catch(e=>{debug.push('error','Princess audio: '+e.message);finish();});
+      void v.ended.then(finish);
     }));
     voiceQueue.current=spoken;
     return spoken;
@@ -150,7 +170,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const resetRoom = useCallback(() => {
     stopVoices();
     setStage('silence'); stageRef.current='silence'; setEnding(null);
-    unmutedAt.current=null; earlyDrawSaid.current=false; smallQuipSaid.current=false; quipIndex.current=0; lastQuipAt.current=0;
+    unmutedAt.current=null; smallQuipSaid.current=false; quipIndex.current=0; lastQuipAt.current=0;
     roomApi.current?.resetRoom();
     puzzleStore.set({ strokeCount: 0, lastResult: null, wrongFlashUntil: 0, swordFlashUntil: 0 });
   }, [stopVoices]);
@@ -170,9 +190,12 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     }
     return done;
   },[puzzle,speak]);
-  useEffect(()=>()=>{voiceRun.current++;for(const a of voices.current){a.pause();a.onended?.(new Event('ended'));}voices.current.clear();},[]);
+  useEffect(()=>()=>{voiceRun.current++;for(const v of voices.current)v.stop();voices.current.clear();},[]);
   const ps = usePuzzleState();
-  const d = useDebug();
+  // Only the fields this component shows: a bare useDebug() re-rendered the
+  // whole page on every log line and Orbis chunk (several per story beat),
+  // which stalls a Quest mid-session.
+  const d = useDebug(useShallow((s) => ({ videoHealth: s.videoHealth, currentChunk: s.currentChunk, lastCommandError: s.lastCommandError, xrSessionActive: s.xrSessionActive })));
 
   // ── Keep connected (live): user Connect/Disconnect + auto-reconnect ────
   // `orbis` is a new object every render: keep it in a ref so effects that
@@ -303,6 +326,8 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   useEffect(() => {
     const unlock = () => {
       roomAudio.unlock();
+      // Decode every princess line now, in the background, so no beat waits on it.
+      roomAudio.preloadVoices([...RESCUE_SCRIPT.filter((b) => b.text).map((b) => b.id), ...BARKS.map((b) => b.id)]);
       // The same gesture lets the live <audio> element play later.
       const a = audioRef.current;
       if (a?.srcObject && a.paused) void a.play().catch(() => undefined);
@@ -432,10 +457,6 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       debug.push("info", `[puzzle] stroke ${strokes.length} via ${source} → ${r.isSword ? `SWORD (score ${r.score.toFixed(2)})` : r.reason}`);
       if (wrongTimer.current) clearTimeout(wrongTimer.current);
       setIdleNonce((n) => n + 1);
-      if (r.isSword && stageRef.current === "unmuted" && !earlyDrawSaid.current) {
-        // Drawn before trying the rack sword: she points them there first.
-        if (bark("early-draw")) earlyDrawSaid.current = true;
-      }
       if (r.isSword) {
         if (!puzzleStore.get().swordFlashUntil || Date.now() > puzzleStore.get().swordFlashUntil) roomAudio.play("sword-right");
         puzzleStore.set({ swordFlashUntil: Date.now() + 1500, wrongFlashUntil: 0 });
@@ -596,6 +617,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
         </div>
       </main>
       <aside className="w-full overflow-y-auto p-3 lg:h-full lg:w-[420px] lg:shrink-0">
+        <FreezeWhile frozen={d.xrSessionActive}>
         <PuzzlePanel
           hasKey={hasKey}
           mode={mode}
@@ -615,6 +637,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             </div>
           }
         />
+        </FreezeWhile>
       </aside>
     </div>
   );

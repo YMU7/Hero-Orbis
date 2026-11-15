@@ -17,21 +17,31 @@ import { glowTexture } from "./proceduralTextures";
 //   - additive light shafts + drifting dust motes in the sunbeams and soft
 //     glow halos on lamps — all shader-animated, no per-frame CPU work.
 //
-// `?quality=low` turns shadows and the environment map off for weak devices.
+// Quality tiers (`?quality=`):
+//   ultra — everything: sun shadow map + room environment on every material
+//           (PCVR / desktop GPUs)
+//   high  — default, tuned for standalone Quest: no shadow map (every
+//           receiver paid a PCF lookup per pixel per eye), environment
+//           reflections only on metal/glossy materials, no shader point lights
+//   low   — no environment map either, simplest materials
 
 export const lookUniforms = { uTime: { value: 0 } };
 
-export function lookQuality(): "high" | "low" {
+export type LookQuality = "ultra" | "high" | "low";
+export function lookQuality(): LookQuality {
   if (typeof window === "undefined") return "high";
-  return new URLSearchParams(window.location.search).get("quality") === "low" ? "low" : "high";
+  const q = new URLSearchParams(window.location.search).get("quality");
+  return q === "low" || q === "ultra" ? q : "high";
 }
+/** Real-time sun shadow map (ultra only). */
+export const lookShadows = () => lookQuality() === "ultra";
 
 /** Renderer colour pipeline + shadows. Call before the first render. */
 export function setupRenderer(renderer: THREE.WebGLRenderer) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
-  const high = lookQuality() === "high";
+  const high = lookShadows();
   renderer.shadowMap.enabled = high;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   // Static room: render the shadow map on demand only (refreshShadows()).
@@ -44,7 +54,7 @@ export function refreshShadows(renderer: THREE.WebGLRenderer) {
 }
 
 /** Bake a small HDR "room" into a PMREM environment for reflections/IBL. */
-export function applyEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene, intensity = 0.55) {
+export function applyEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene, intensity = 0.55, opts: { global?: boolean } = {}) {
   if (lookQuality() === "low") return () => undefined;
   const env = new THREE.Scene();
   const W = ROOM.maxX - ROOM.minX;
@@ -91,9 +101,42 @@ export function applyEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sce
       (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => x.dispose());
     }
   });
-  scene.environment = rt.texture;
-  scene.environmentIntensity = intensity;
-  return () => rt.dispose();
+  if (opts.global || lookQuality() === "ultra") {
+    scene.environment = rt.texture;
+    scene.environmentIntensity = intensity;
+  } else {
+    // Quest: only shiny materials get reflections (see assignEnvMaps); the
+    // matte room relies on the hemisphere light for bounce.
+    envTexture = rt.texture;
+    envIntensity = intensity;
+  }
+  return () => {
+    envTexture = null;
+    rt.dispose();
+  };
+}
+
+let envTexture: THREE.Texture | null = null;
+let envIntensity = 0.55;
+/** Give the baked environment to metal / glossy materials under `root` only
+ *  (gold, steel, mirror, glass, glaze). The cubeUV lookup is one of the most
+ *  expensive parts of MeshStandardMaterial on a mobile GPU, and matte stone,
+ *  plaster, wood and fabric barely show it. No-op on ultra (global env). */
+export function assignEnvMaps(root: THREE.Object3D) {
+  if (!envTexture) return;
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    for (const x of Array.isArray(m.material) ? m.material : [m.material]) {
+      const s = x as THREE.MeshStandardMaterial;
+      if (!s.isMeshStandardMaterial || s.envMap) continue;
+      if (s.metalness >= 0.3 || s.roughness <= 0.3) {
+        s.envMap = envTexture;
+        s.envMapIntensity = envIntensity * 1.6;
+        s.needsUpdate = true;
+      }
+    }
+  });
 }
 
 /** Decor kinds mounted on walls: they receive the sun shadow but never cast
@@ -230,8 +273,9 @@ export function lightShaft(): THREE.Mesh {
     pos.push(...a.toArray(), ...d.toArray(), ...b.toArray(), ...b.toArray(), ...d.toArray(), ...c.toArray());
     uv.push(0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0);
   };
-  // sheets along the beam, spaced across the window width
-  const nx = 5;
+  // sheets along the beam, spaced across the window width (kept few: each
+  // sheet is full-screen additive overdraw when the player stands in a beam)
+  const nx = lookQuality() === "ultra" ? 5 : 3;
   for (let i = 0; i < nx; i++) {
     const x = x0 + ((i + 0.5) / nx) * (x1 - x0);
     const wt = new THREE.Vector3(x, y1, 0.02);
@@ -239,7 +283,7 @@ export function lightShaft(): THREE.Mesh {
     quad(wb, wt, sunFloor(x, y1), sunFloor(x, y0));
   }
   // ribbons spanning the width, spaced over the window height
-  const ny = 4;
+  const ny = lookQuality() === "ultra" ? 4 : 2;
   for (let j = 0; j < ny; j++) {
     const y = y0 + ((j + 0.5) / ny) * (y1 - y0);
     quad(new THREE.Vector3(x0, y, 0.02), new THREE.Vector3(x1, y, 0.02), sunFloor(x1, y), sunFloor(x0, y));
@@ -324,6 +368,49 @@ export function glowHalo(color: number, size: number, opacity = 0.55): THREE.Spr
   s.renderOrder = 2;
   s.name = "glow-halo";
   return s;
+}
+
+/** Compile every shader program and upload every texture up front, including
+ *  objects that start hidden (reward sword, fireball, photo, flash, end card,
+ *  particle templates). Otherwise each one compiles on the frame it first
+ *  appears, a stall of 100 ms or more per program on Quest. Call once after
+ *  the room is fully built. */
+export function prewarm(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
+  const hidden: THREE.Object3D[] = [];
+  const textures = new Set<THREE.Texture>();
+  scene.traverse((o) => {
+    if (!o.visible) {
+      hidden.push(o);
+      o.visible = true;
+    }
+    const m = o as THREE.Mesh;
+    if (!m.material) return;
+    for (const x of Array.isArray(m.material) ? m.material : [m.material]) {
+      for (const v of Object.values(x)) {
+        const t = v as THREE.Texture;
+        if (t && t.isTexture && !(t as THREE.VideoTexture).isVideoTexture && t.image) textures.add(t);
+      }
+    }
+  });
+  try {
+    renderer.compile(scene, camera);
+    for (const t of textures) renderer.initTexture(t);
+    // compile() doesn't upload vertex buffers; that happens on first draw
+    // (~80 ms for the hidden props on desktop, far more on Quest). Draw
+    // everything once through a 1-pixel scissor so nobody sees it.
+    if (!renderer.xr.isPresenting) {
+      const prevScissor = renderer.getScissorTest();
+      const box = renderer.getScissor(new THREE.Vector4());
+      renderer.setScissor(0, 0, 1, 1);
+      renderer.setScissorTest(true);
+      renderer.render(scene, camera);
+      renderer.setScissor(box);
+      renderer.setScissorTest(prevScissor);
+    }
+  } finally {
+    for (const o of hidden) o.visible = false;
+  }
+  return { programs: renderer.info.programs?.length ?? 0, textures: textures.size };
 }
 
 /** Per-frame: advance shader time (shafts, motes). */

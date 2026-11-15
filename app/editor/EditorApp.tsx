@@ -234,7 +234,7 @@ export function EditorApp() {
     let disposeEnv = () => {};
     if (sceneId.current === "puzzle") {
       renderer.toneMapping = THREE.NeutralToneMapping;
-      disposeEnv = applyEnvironment(renderer, scene);
+      disposeEnv = applyEnvironment(renderer, scene, 0.55, { global: true }); // desktop editor: full look
     }
     if (profile.floorAndGrid) {
       scene.add(new THREE.GridHelper(12, 24, 0x333849, 0x23262f));

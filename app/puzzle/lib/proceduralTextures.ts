@@ -82,7 +82,7 @@ function toTexture(w: number, h: number, data: Uint8ClampedArray, srgb: boolean,
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
+  t.anisotropy = 4;
   if (repeat) t.repeat.set(...repeat);
   return t;
 }
