@@ -7,6 +7,13 @@
       "runtimeArgs": ["node_modules/next/dist/bin/next", "start", "-p", "3000"],
       "env": { "NEXT_TELEMETRY_DISABLED": "1" },
       "port": 3000
+    },
+    {
+      "name": "perf-dev",
+      "runtimeExecutable": "C:\\Program Files\\WindowsApps\\OpenAI.CodexPrimaryRuntime.v26-1112-737-0_26.1112.737.0_x64__3k8sg7r9htsxt\\dependencies\\node\\bin\\node.exe",
+      "runtimeArgs": ["node_modules/next/dist/bin/next", "dev", "-p", "3100"],
+      "env": { "NEXT_TELEMETRY_DISABLED": "1", "BASIC_AUTH_USER": "", "BASIC_AUTH_PASS": "" },
+      "port": 3100
     }
   ]
 }

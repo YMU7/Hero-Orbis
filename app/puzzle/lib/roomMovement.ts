@@ -28,7 +28,13 @@ export class RoomMovement {
       x = Number(this.keys.has("KeyD")) - Number(this.keys.has("KeyA"));
       y = Number(this.keys.has("KeyS")) - Number(this.keys.has("KeyW"));
     }
-    const head = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera() : this.camera;
+    // Always use the user camera (a child of the rig). In XR, three.js copies
+    // the headset pose into it each frame, so its world transform includes the
+    // rig's turn and offset. Don't use renderer.xr.getCamera(): it has no
+    // parent, so getWorldPosition/Direction rebuild its matrixWorld from the
+    // raw reference-space pose. That drops the rig transform, so after a stick
+    // turn "forward" stayed pointing the old way and the turn pivot drifted.
+    const head = this.camera;
     const headPos = head.getWorldPosition(new THREE.Vector3());
     const deadZone = 0.15;
     if (Math.abs(turn) > deadZone) {
