@@ -120,4 +120,4 @@ Note: in a tab that has never been clicked, the browser keeps audio locked, so a
 
 Non-visual edits in this pass (needed for the octagon or requested): wall colliders and the movement clamp follow the 8 walls; the rack collider is a floor rack; tool spawn positions moved with the layout; the seal's click target ring is 0.15 m (was 0.18 m); the CLEAR button is removed; the editor shows the gameplay props as a locked preview. No puzzle stage, success condition, timing or grab rule changed.
 
-The easel was moved in the Scene Editor at 23:40 PT to (1.74, 0, 0.02), −55°. `data/scenes/puzzle.json` keeps that position; `roomLayout.ts` still has the earlier default, so rerunning `scripts/write-puzzle-layout.cjs` would undo the editor move.
+The easel and the pedestal were moved in the Scene Editor (last save 23:44 PT): easel (1.775, 0, 0.308), −81.5°; pedestal (1.729, 0, 1.097), −137°. `roomLayout.ts` was synced to these values, and `scripts/write-puzzle-layout.cjs` reproduces the saved `data/scenes/puzzle.json` exactly.
