@@ -70,7 +70,7 @@ const STAGES = ['silence','unmuted','melted','drawn','rope','fire','key','reject
 const HINT_DELAYS_MS = [25_000, 55_000];
 /** The silent opening has no voice: plaque nudges instead, gentle then blunt. */
 const SILENCE_NUDGES: Array<[ms: number, text: string]> = [
-  [10_000, "Her voice is locked behind that red seal… it looks fragile."],
+  [10_000, "Her voice is locked behind that red seal around the microphone… it looks fragile."],
   [25_000, "Grab the glowing hammer and smash the red seal!"],
 ];
 /** Keep the subtitle up briefly after a line ends. */
@@ -172,6 +172,8 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     voiceQueue.current=spoken;
     return spoken;
   },[]);
+  /** A voice clip (line, hint or quip) is playing right now. */
+  const isSpeaking=useCallback(()=>voices.current.size>0,[]);
   /** A hint or quip: dropped (false) while she is already talking. */
   const bark=useCallback((id:string)=>{
     const line=BARKS.find(b=>b.id===id);
@@ -599,6 +601,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       <main className="relative h-[60vh] min-h-[420px] shrink-0 lg:min-h-0 lg:flex-1 lg:h-full">
         {xrInitDone && (
           <PuzzleScene
+            isSpeaking={isSpeaking}
             onBeat={onBeat}
             onBark={bark}
             morphing={ps.morphing}
@@ -653,7 +656,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
           </div>
         )}
         <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-[11px] text-zinc-300">
-          /puzzle · desktop: drag on the easel canvas to draw · click the mute symbol to strike · click tools to carry/drop · Space to shoot camera · WASD move · arrows look · VR: pinch/grip to grab, left stick move, right stick smooth turn
+          /puzzle · desktop: drag on the easel canvas to draw · click the red seal to strike · click tools to carry/drop · Space to shoot camera · WASD move · arrows look · VR: pinch/grip to grab, left stick move, right stick smooth turn
         </div>
       </main>
       <aside className="w-full overflow-y-auto p-3 lg:h-full lg:w-[420px] lg:shrink-0">

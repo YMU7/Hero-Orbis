@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { ROOM } from "../puzzleConfig";
+import { OCTAGON, ROOM, roomWalls } from "../puzzleConfig";
 import { glowTexture } from "./proceduralTextures";
 
 // Look-dev pass for the princess room (runtime + Scene Editor).
@@ -82,10 +82,12 @@ export function applyEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Sce
     m.rotation.y = rotY;
     env.add(m);
   };
-  // sun side (left) is brightest, back and right windows are skylight
-  win(ROOM.minX + 0.02, -1.0, Math.PI / 2, 6);
-  win(ROOM.maxX - 0.02, -1.0, -Math.PI / 2, 3);
-  win(0, ROOM.maxZ - 0.02, Math.PI, 3);
+  // Octagon: four diagonal windows. Sun side (left) is brightest, the
+  // right-hand windows are skylight.
+  for (const w of roomWalls()) {
+    if (!w.diagonal) continue;
+    win(w.x + Math.sin(w.yaw) * 0.02, w.z + Math.cos(w.yaw) * 0.02, w.yaw, w.x < OCTAGON.cx ? 6 : 3);
+  }
   // warm sun pool on the floor + painting wall glow
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.4), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd7a0).multiplyScalar(2.2) }));
   pool.rotation.x = -Math.PI / 2;
@@ -179,25 +181,27 @@ export function withRoomAO(m: THREE.MeshStandardMaterial, strength = 1) {
   const prev = m.onBeforeCompile;
   m.onBeforeCompile = (shader, r) => {
     prev?.call(m, shader, r);
-    shader.uniforms.uRoomMin = { value: new THREE.Vector3(ROOM.minX, 0, ROOM.minZ) };
-    shader.uniforms.uRoomMax = { value: new THREE.Vector3(ROOM.maxX, ROOM.height, ROOM.maxZ) };
+    // Octagon: (cx, cz, apothem, |x|+|z| of the diagonal walls) + height.
+    shader.uniforms.uRoomOct = { value: new THREE.Vector4(OCTAGON.cx, OCTAGON.cz, OCTAGON.half, OCTAGON.half + OCTAGON.corner) };
+    shader.uniforms.uRoomH = { value: ROOM.height };
     shader.uniforms.uAOStrength = { value: strength };
     shader.vertexShader = shader.vertexShader
       .replace("void main() {", "varying vec3 vRoomPos;\nvoid main() {")
       .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\n  vRoomPos = (modelMatrix * vec4(transformed, 1.0)).xyz;");
     shader.fragmentShader = shader.fragmentShader
-      .replace("void main() {", "varying vec3 vRoomPos;\nuniform vec3 uRoomMin;\nuniform vec3 uRoomMax;\nuniform float uAOStrength;\nvoid main() {")
+      .replace("void main() {", "varying vec3 vRoomPos;\nuniform vec4 uRoomOct;\nuniform float uRoomH;\nuniform float uAOStrength;\nvoid main() {")
       .replace(
         "#include <aomap_fragment>",
         [
           "#include <aomap_fragment>",
           "  {",
           "    vec3 p = vRoomPos;",
-          "    float dx = min(p.x - uRoomMin.x, uRoomMax.x - p.x);",
-          "    float dz = min(p.z - uRoomMin.z, uRoomMax.z - p.z);",
-          "    float dWall = max(min(dx, dz), 0.0);",
-          "    float seam = max(exp(-max(p.y, 0.0) / 0.32), exp(-max(uRoomMax.y - p.y, 0.0) / 0.28)) * exp(-dWall / 0.4);",
-          "    float corner = exp(-max(max(dx, dz), 0.0) / 0.45);",
+          "    vec2 q = abs(p.xz - uRoomOct.xy);",
+          "    float dAx = uRoomOct.z - max(q.x, q.y);", // nearest axial wall
+          "    float dDg = (uRoomOct.w - q.x - q.y) * 0.70710678;", // nearest diagonal wall
+          "    float dWall = max(min(dAx, dDg), 0.0);",
+          "    float seam = max(exp(-max(p.y, 0.0) / 0.32), exp(-max(uRoomH - p.y, 0.0) / 0.28)) * exp(-dWall / 0.4);",
+          "    float corner = exp(-max(max(dAx, dDg), 0.0) / 0.45);",
           "    float contact = exp(-max(p.y, 0.0) / 0.12) * 0.25;",
           "    float rao = clamp(1.0 - uAOStrength * (0.38 * seam + 0.32 * corner + contact * exp(-dWall / 0.25)), 0.35, 1.0);",
           "    reflectedLight.indirectDiffuse *= rao;",

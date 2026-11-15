@@ -97,9 +97,71 @@ export const WRONG_HINT_IDLE_MS = 2500;
 export const BOARD_W = 0.7;
 export const BOARD_H = 0.55;
 
-/** Room: 5 m × 5 m play area. The viewer starts at the origin, 2.6 m from the
- *  front wall, so the painting (on that wall) is ~2.5 m straight ahead. */
-export const ROOM = { minX: -2.5, maxX: 2.5, minZ: -2.6, maxZ: 2.4, height: 3.2 } as const;
+/** Room: the viewer starts at the origin, 2.6 m from the front wall, so the
+ *  painting (on that wall) is ~2.5 m straight ahead. */
+// Octagonal chamber (art pass 2026-11-15, top-down layout study). Walls at
+// 45° steps: four 4.375 m walls (front / left / right / back) joined by four
+// 1.86 m diagonal window walls. 7 m across (enlarged 1.25x from the 5.6 m
+// study on request), 3.2 m high. The front wall stays at z = −2.6 so the
+// painting (z = −2.55), the viewer's start at the origin and eye level are
+// unchanged; the room grows to the sides and back.
+//   half   = centre → axial wall (apothem)
+//   corner = half-length of the axial walls (where the diagonals start)
+export const OCTAGON = { cx: 0, cz: 0.9, half: 3.5, corner: 2.1875, height: 3.2 } as const;
+
+/** Bounding box of the octagon (used by AO, the baked environment, the rope). */
+export const ROOM = {
+  minX: OCTAGON.cx - OCTAGON.half,
+  maxX: OCTAGON.cx + OCTAGON.half,
+  minZ: OCTAGON.cz - OCTAGON.half,
+  maxZ: OCTAGON.cz + OCTAGON.half,
+  height: OCTAGON.height,
+} as const;
+
+export type RoomWall = { id: string; x: number; z: number; yaw: number; length: number; diagonal: boolean };
+
+/** The eight wall segments: centre on the floor, yaw so local +Z faces into
+ *  the room, and length. Clockwise from the front (painting) wall. */
+export function roomWalls(): RoomWall[] {
+  const { cx, cz, half: a, corner: f } = OCTAGON;
+  const m = (a + f) / 2; // diagonal wall centre offset on each axis
+  const diag = (a - f) * Math.SQRT2;
+  return [
+    { id: "front", x: cx, z: cz - a, yaw: 0, length: 2 * f, diagonal: false },
+    { id: "front-right", x: cx + m, z: cz - m, yaw: -Math.PI / 4, length: diag, diagonal: true },
+    { id: "right", x: cx + a, z: cz, yaw: -Math.PI / 2, length: 2 * f, diagonal: false },
+    { id: "back-right", x: cx + m, z: cz + m, yaw: (-3 * Math.PI) / 4, length: diag, diagonal: true },
+    { id: "back", x: cx, z: cz + a, yaw: Math.PI, length: 2 * f, diagonal: false },
+    { id: "back-left", x: cx - m, z: cz + m, yaw: (3 * Math.PI) / 4, length: diag, diagonal: true },
+    { id: "left", x: cx - a, z: cz, yaw: Math.PI / 2, length: 2 * f, diagonal: false },
+    { id: "front-left", x: cx - m, z: cz - m, yaw: Math.PI / 4, length: diag, diagonal: true },
+  ];
+}
+
+/** Floor outline of the octagon (counter-clockwise seen from above, x/z). */
+export function roomOutline(): Array<[number, number]> {
+  const { cx, cz, half: a, corner: f } = OCTAGON;
+  return [
+    [cx - f, cz - a], [cx + f, cz - a], [cx + a, cz - f], [cx + a, cz + f],
+    [cx + f, cz + a], [cx - f, cz + a], [cx - a, cz + f], [cx - a, cz - f],
+  ];
+}
+
+/** Closest point to (x, z) that stays `inset` metres inside the octagon. */
+export function clampToRoom(x: number, z: number, inset = 0): [number, number] {
+  const { cx, cz, half, corner } = OCTAGON;
+  const a = half - inset;
+  let px = Math.min(a, Math.max(-a, x - cx));
+  let pz = Math.min(a, Math.max(-a, z - cz));
+  const k = half + corner - inset * Math.SQRT2; // diagonal walls: |x| + |z| = k
+  const s = Math.abs(px) + Math.abs(pz);
+  if (s > k) {
+    const d = (s - k) / 2;
+    px -= Math.sign(px) * d;
+    pz -= Math.sign(pz) * d;
+  }
+  return [px + cx, pz + cz];
+}
 
 /** Shared scene file for the room layout (data/scenes/puzzle.json, edited in /editor?scene=puzzle). */
 export const PUZZLE_SCENE_ID = "puzzle";

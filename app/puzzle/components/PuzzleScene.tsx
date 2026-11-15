@@ -38,7 +38,7 @@ import { emptyScene, type SceneObject } from "../../lib/sceneData/types";
 import { BOARD_H, BOARD_W, PUZZLE_SCENE_ID } from "../puzzleConfig";
 import type { Stroke } from "../lib/swordRecognizer";
 
-// "The princess in the painting" — a 5 m × 5 m fantasy princess room at real
+// "The princess in the painting" — an octagonal (5.6 m) princess room at real
 // scale. The viewer starts at the origin (1 m in from the back wall) facing -Z.
 //
 // LAYOUT comes from the shared scene file data/scenes/puzzle.json, edited in
@@ -47,7 +47,7 @@ import type { Stroke } from "../lib/swordRecognizer";
 //   painting   : gold-framed painting = the live Orbis stream (+ hint, HUD)
 //   easel      : wooden A-frame easel with mounted pen and eraser
 //   gramophone : puzzle 1 (on a side table)
-//   pedestal   : RESET / CLEAR poke buttons
+//   pedestal   : RESET poke button
 //   decor      : rug, canopy bed, night window, sconces, banners, tables, GLBs
 // No file / empty file → the original default room (DEFAULT_PUZZLE_LAYOUT).
 // The scene is built once the layout is fetched (a fetch error falls back to
@@ -70,6 +70,8 @@ export type PuzzleSceneProps = {
   onBark: (id: string) => void;
   /** Orbis is catching up with a cue: the painting shimmers. */
   morphing: boolean;
+  /** True while a princess voice line is playing (the microphone glows green). */
+  isSpeaking?: () => boolean;
   showVideo: boolean;
   video: HTMLVideoElement | null;
   placeholderLines: string[];
@@ -273,7 +275,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     const eraser = new Eraser(physics, mount, board, () => propsRef.current.onButton('clear','eraser on canvas'));
     scene.add(eraser.object);
     let tonearmHolder: Grabber | null = null;
-    // Controller pointer-ray targets (Phase E): RESET / CLEAR / gramophone.
+    // Controller pointer-ray targets (Phase E): RESET / gramophone.
     const rayCaster = new THREE.Raycaster();
     const rayTarget = (g: Grabber): { kind: "button"; b: PokeButton; d: number } | { kind: "tool"; d: number } | null => {
       const r = hands.pointerRay(g);
@@ -566,6 +568,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       // Shimmer: fast in (the action just happened), slow out (the new
       // picture fades in underneath while Orbis morphs).
       paintingFx.time.value += dt;
+      unity.setSpeaking(!!p.isSpeaking?.());
       const target = p.morphing ? 1 : 0;
       paintingFx.shimmer.value += (target - paintingFx.shimmer.value) * Math.min(1, dt * (p.morphing ? 8 : 1.6));
       const wall = Date.now();

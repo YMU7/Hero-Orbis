@@ -19,6 +19,11 @@ import {
   isSingletonAsset,
   normalizePuzzleScene,
 } from "../puzzle/lib/roomParts";
+import { initToolPhysics, ToolPhysics } from "../puzzle/lib/toolPhysics";
+import { UnityRoom } from "../puzzle/lib/unityRoom";
+import { dressProps } from "../puzzle/lib/propModels";
+import type { DrawingBoard } from "../puzzle/lib/drawingBoard";
+import { PAINTING_HOME } from "../puzzle/roomLayout";
 
 // Desktop Scene Editor for the shared environment of /mvp.
 //
@@ -138,6 +143,22 @@ const PROFILES: Record<string, Profile> = {
       if (ceiling) ceiling.visible = false; // so the room can be seen from above
       g.add(shell, viewerMarker());
       g.traverse((o) => (o.userData.locked = true));
+      // Gameplay props (key enclosure + rope, sword rack with hammer and
+      // swords, Magic Portrait Box, silence seal) are built in code by the
+      // /puzzle runtime, not stored in the scene file. Show them here as a
+      // locked preview, built by the same code at the default painting
+      // position (roomLayout.RESCUE_LAYOUT).
+      void initToolPhysics().then(() => {
+        const painting = new THREE.Group();
+        painting.position.set(...PAINTING_HOME);
+        painting.updateMatrixWorld(true);
+        const board = { strokes: [], boardToWorld: () => new THREE.Vector3(0, -10, 0) } as unknown as DrawingBoard;
+        const unity = new UnityRoom(new ToolPhysics(), painting, board, () => {});
+        dressProps(unity);
+        unity.group.name = "gameplay props (locked preview)";
+        unity.group.traverse((o) => (o.userData.locked = true));
+        g.add(unity.group);
+      });
       return g;
     },
     builtins: buildBuiltinPreview,
@@ -146,7 +167,7 @@ const PROFILES: Record<string, Profile> = {
     required: isSingletonAsset,
     camera: { position: [3.4, 3.4, 2.4], target: [0, 0.9, -1.6] },
     floorAndGrid: false,
-    lockedNote: "Locked: room shell (5×5 m walls, floor), viewer. Required (move only): painting, easel, gramophone, pedestal.",
+    lockedNote: "Locked: room shell (octagon, 5.6 m across), viewer, gameplay props (key + rope, sword rack + hammer, portrait box, seal: placed in app/puzzle/roomLayout.ts). Required (move only): painting, easel, gramophone, pedestal.",
   },
 };
 const profileFor = (id: string) => PROFILES[id] ?? PROFILES.mvp;

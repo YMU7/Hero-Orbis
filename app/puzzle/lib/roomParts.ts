@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { BOARD_H, BOARD_W, PAINTING_SATURATION, PUZZLE_ACTIONS, PUZZLE_AUDIO_PROMPTS, ROOM } from "../puzzleConfig";
+import { BOARD_H, BOARD_W, OCTAGON, PAINTING_SATURATION, PUZZLE_ACTIONS, PUZZLE_AUDIO_PROMPTS, ROOM, roomOutline, roomWalls } from "../puzzleConfig";
 import { Gramophone } from "./gramophone";
 import { DrawingBoard } from "./drawingBoard";
 import type { SceneDoc, SceneObject } from "../../lib/sceneData/types";
@@ -10,6 +10,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { FURNITURE, floorTileTexture, mat, ornateFrame, stoneWallTexture, type FurnitureKind } from "./furniture";
 import { glowHalo, lookQuality, withRoomAO } from "./lookdev";
 import { plasterSet, woodGrainSet } from "./proceduralTextures";
+import { ROOM_LAYOUT } from "../roomLayout";
 
 // Building blocks of the princess room, shared by the /puzzle runtime and
 // the Scene Editor (/editor?scene=puzzle).
@@ -164,68 +165,90 @@ function molding(len: number, profile: Array<[number, number]>, material: THREE.
 }
 
 export function buildShell(): THREE.Group {
+  // Octagonal chamber (art pass 2026-11-15): floor + ceiling follow the
+  // octagon outline, eight stone walls with skirting and gold crown
+  // moulding, slim stone pilasters hide the 135° wall joints, and the
+  // ceiling has eight wooden ribs meeting at a gilded centre boss. Shared
+  // materials; staticBatch merges it all into a handful of draw calls.
   const shell = new THREE.Group();
-  shell.name = "room shell (5×5 m)";
-  const W = ROOM.maxX - ROOM.minX;
-  const D = ROOM.maxZ - ROOM.minZ;
-  const cx = (ROOM.maxX + ROOM.minX) / 2;
-  const cz = (ROOM.maxZ + ROOM.minZ) / 2;
+  shell.name = "room shell (octagon)";
   const H = ROOM.height;
-  // Phase B: warm stone floor tiles, soft stone-block walls with a stone base
-  // course and a gold crown line, ivory ceiling with wooden beams.
-  // Look-dev pass: textures carry normal + roughness maps; floor, walls and
-  // ceiling get analytic room AO (dark seams and corners).
-  const fl = floorTileTexture([W / 2.4, D / 2.4]);
+  const outline = roomOutline();
+  const shape = new THREE.Shape(outline.map(([x, z]) => new THREE.Vector2(x, -z)));
+  // Floor: ShapeGeometry UVs are in metres, so tiles repeat every 2.4 m.
+  const fl = floorTileTexture([1 / 2.4, 1 / 2.4]);
   const floorMat = withRoomAO(new THREE.MeshStandardMaterial({ map: fl.map, normalMap: fl.normalMap, roughnessMap: fl.roughnessMap, roughness: 1, normalScale: new THREE.Vector2(0.8, 0.8), name: "floor" }));
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), floorMat);
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.set(cx, 0, cz);
+  const floorGeo = new THREE.ShapeGeometry(shape);
+  floorGeo.rotateX(-Math.PI / 2); // shape (x, −z) → floor (x, 0, z), facing up
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.name = "floor";
   shell.add(floor);
-  const pl = plasterSet([W / 1.5, D / 1.5]);
+  const pl = plasterSet([1 / 1.5, 1 / 1.5]);
   const ceilMat = withRoomAO(new THREE.MeshStandardMaterial({ color: 0xf8f0e2, map: pl.map, normalMap: pl.normalMap, normalScale: new THREE.Vector2(0.4, 0.4), roughness: 1, name: "ceiling" }), 0.9);
-  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(W, D), ceilMat);
-  ceiling.rotation.x = Math.PI / 2;
-  ceiling.position.set(cx, H, cz);
+  const ceilGeo = new THREE.ShapeGeometry(new THREE.Shape(outline.map(([x, z]) => new THREE.Vector2(x, z))));
+  ceilGeo.rotateX(Math.PI / 2); // shape (x, z) → (x, 0, z), facing down
+  const ceiling = new THREE.Mesh(ceilGeo, ceilMat);
+  ceiling.position.y = H;
   ceiling.name = "ceiling";
   shell.add(ceiling);
-  for (let i = 0; i < 4; i++) {
-    const z = ROOM.minZ + (D / 4) * (i + 0.5);
-    const beamMesh = new THREE.Mesh(new RoundedBoxGeometry(W, 0.16, 0.18, 2, 0.02), mat("woodDark"));
-    beamMesh.position.set(cx, H - 0.08, z);
-    shell.add(beamMesh);
-    // carved corbels where each beam meets the side walls
-    for (const sx of [ROOM.minX + 0.07, ROOM.maxX - 0.07]) {
-      const corbel = new THREE.Mesh(new RoundedBoxGeometry(0.14, 0.26, 0.16, 2, 0.03), mat("woodDark"));
-      corbel.position.set(sx, H - 0.25, z);
-      shell.add(corbel);
-    }
-  }
-  const ws = stoneWallTexture([W / 1.6, H / 1.6]);
+  // Walls: one stone material, UVs scaled per wall (texture every 1.6 m).
+  const ws = stoneWallTexture([1, 1]);
   const wallMat = withRoomAO(new THREE.MeshStandardMaterial({ map: ws.map, normalMap: ws.normalMap, roughnessMap: ws.roughnessMap, roughness: 1, normalScale: new THREE.Vector2(1, 1), name: "wall" }));
   const wainMat = mat("stoneDark");
   const trim = trimMat();
-  const walls: Array<{ pos: [number, number]; rotY: number; len: number }> = [
-    { pos: [cx, ROOM.minZ], rotY: 0, len: W },
-    { pos: [cx, ROOM.maxZ], rotY: Math.PI, len: W },
-    { pos: [ROOM.minX, cz], rotY: Math.PI / 2, len: D },
-    { pos: [ROOM.maxX, cz], rotY: -Math.PI / 2, len: D },
-  ];
-  for (const w of walls) {
+  for (const w of roomWalls()) {
     const g = new THREE.Group();
-    g.position.set(w.pos[0], 0, w.pos[1]);
-    g.rotation.y = w.rotY;
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(w.len, H), wallMat);
+    g.position.set(w.x, 0, w.z);
+    g.rotation.y = w.yaw;
+    const geo = new THREE.PlaneGeometry(w.length, H);
+    const uv = geo.attributes.uv as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (w.length / 1.6), uv.getY(i) * (H / 1.6));
+    const wall = new THREE.Mesh(geo, wallMat);
     wall.position.y = H / 2;
     g.add(wall);
     // profiled stone skirting (plinth + ogee + bead) and a gold crown
-    // moulding, extruded along the wall
-    const base = molding(w.len, [[0, 0], [0.07, 0], [0.07, 0.16], [0.05, 0.19], [0.055, 0.215], [0.03, 0.235], [0.0, 0.24]], wainMat);
+    // moulding, extruded along the wall (joints hidden by the pilasters)
+    const base = molding(w.length, [[0, 0], [0.07, 0], [0.07, 0.16], [0.05, 0.19], [0.055, 0.215], [0.03, 0.235], [0.0, 0.24]], wainMat);
     g.add(base);
-    const crown = molding(w.len, [[0, 0], [0.025, 0.0], [0.03, 0.02], [0.06, 0.05], [0.085, 0.085], [0.09, 0.11], [0.0, 0.11]], trim);
+    const crown = molding(w.length, [[0, 0], [0.025, 0.0], [0.03, 0.02], [0.06, 0.05], [0.085, 0.085], [0.09, 0.11], [0.0, 0.11]], trim);
     crown.position.y = H - 0.11;
     g.add(crown);
     shell.add(g);
   }
+  // Corner pilasters: slim turned stone shafts with gold bands.
+  const stone = mat("stone");
+  const pilaster = new THREE.LatheGeometry(
+    [[0, 0], [0.15, 0], [0.15, 0.1], [0.12, 0.15], [0.1, 0.26], [0.095, H - 0.42], [0.12, H - 0.34], [0.12, H - 0.11], [0, H - 0.11]].map(([x, y]) => new THREE.Vector2(x, y)),
+    16,
+  );
+  const band = new THREE.TorusGeometry(0.1, 0.016, 6, 16).rotateX(Math.PI / 2);
+  for (const [x, z] of outline) {
+    const p = new THREE.Mesh(pilaster, stone);
+    p.position.set(x, 0, z);
+    shell.add(p);
+    for (const y of [0.27, H - 0.4]) {
+      const b = new THREE.Mesh(band, trim);
+      b.position.set(x, y, z);
+      shell.add(b);
+    }
+  }
+  // Ceiling: eight wooden ribs from the corners to a centre ring + boss.
+  const c = new THREE.Vector3(OCTAGON.cx, H - 0.06, OCTAGON.cz);
+  const ribMat = mat("woodDark");
+  for (const [x, z] of outline) {
+    const from = new THREE.Vector3(x, H - 0.06, z);
+    const dir = c.clone().sub(from).normalize();
+    shell.add(beam(from.clone().addScaledVector(dir, 0.1), c.clone().addScaledVector(dir, -0.42), 0.12, 0.1, ribMat));
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.05, 8, 40).rotateX(Math.PI / 2), ribMat);
+  ring.position.copy(c);
+  shell.add(ring);
+  const medallion = new THREE.Mesh(new THREE.CircleGeometry(0.42, 40).rotateX(Math.PI / 2), mat("lavender"));
+  medallion.position.set(c.x, H - 0.004, c.z);
+  shell.add(medallion);
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI), trim);
+  boss.position.set(c.x, H - 0.005, c.z);
+  shell.add(boss);
   return shell;
 }
 
@@ -453,11 +476,11 @@ export function buildPainting() {
   group.add(paintMesh);
   const hint = makeCanvasTex(1024, 96);
   const hintMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * (96 / 1024)), new THREE.MeshBasicMaterial({ map: hint.tex, toneMapped: false }));
-  hintMesh.position.set(0, -PAINT_H / 2 - 0.47, 0.02); // below the frame and clear of the mute seal (painting y −0.82, r ≈ 0.2)
+  hintMesh.position.set(0, -PAINT_H / 2 - 0.54, 0.02); // below the frame and the silence crystal's hammer plaque
   group.add(hintMesh);
   const hud = makeCanvasTex(1024, 200);
   const hudMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8 * (200 / 1024)), new THREE.MeshBasicMaterial({ map: hud.tex, toneMapped: false }));
-  hudMesh.position.set(1.95, -0.6, 0.02);
+  hudMesh.position.set(1.2, -1.02, 0.02); // below the frame, right of the hint plaque (octagon front wall ends at x = ±1.75)
   group.add(hudMesh);
   return { group, paintMat, placeholder, hint, hud };
 }
@@ -532,7 +555,8 @@ function mergeByMaterial(root: THREE.Object3D) {
 
 export type PokeButton = { id: "reset" | "clear" | "hint"; mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; base: THREE.Color; armed: boolean; flashUntil: number; tex: ReturnType<typeof makeCanvasTex> };
 
-/** Stone pedestal with RESET / CLEAR / HINT poke buttons; origin on the floor. */
+/** Stone pedestal with the RESET and HINT poke buttons (CLEAR removed: the
+ *  easel eraser clears the canvas); origin on the floor. */
 export function buildPedestal() {
   const group = new THREE.Group();
   const pl = plasterSet([1, 2]);
@@ -553,16 +577,16 @@ export function buildPedestal() {
   const capital = new THREE.Mesh(new RoundedBoxGeometry(0.48, 0.045, 0.26, 2, 0.012), goldMat());
   capital.position.y = 0.92;
   group.add(capital);
-  const buttons: PokeButton[] = (["reset", "clear", "hint"] as const).map((id, k) => {
-    const base = new THREE.Color(id === "reset" ? 0xc0392b : id === "hint" ? 0xc08b2b : 0x2b6cc0);
+  const buttons: PokeButton[] = (["reset", "hint"] as const).map((id, k) => {
+    const base = new THREE.Color(id === "reset" ? 0xc0392b : 0xc08b2b);
     const mat = new THREE.MeshStandardMaterial({ color: base, roughness: 0.4 });
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.03, 24), mat);
-    mesh.position.set((k - 1) * 0.15, 0.955, 0);
+    mesh.position.set((k - 0.5) * 0.15, 0.955, 0);
     group.add(mesh);
     const tex = makeCanvasTex(256, 96);
     paint(tex, "#3a2a4a", [{ text: id.toUpperCase(), font: "bold 60px sans-serif", color: "#ffffff" }]);
     const label = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.045), new THREE.MeshBasicMaterial({ map: tex.tex, toneMapped: false }));
-    label.position.set((k - 1) * 0.15, 0.945, 0.135);
+    label.position.set((k - 0.5) * 0.15, 0.945, 0.135);
     label.rotation.x = -0.3;
     group.add(label);
     return { id, mesh, mat, base, armed: true, flashUntil: 0, tex };
@@ -651,8 +675,6 @@ export function buildBuiltinPreview(asset: string): THREE.Object3D | null {
   }
 }
 
-const DEG = 180 / Math.PI;
-const facingOrigin = (x: number, z: number) => Math.round(Math.atan2(-x, -z) * DEG * 100) / 100;
 const obj = (id: string, name: string, kind: BuiltinKind, position: [number, number, number], rotY = 0): SceneObject => ({
   id,
   name,
@@ -663,48 +685,13 @@ const obj = (id: string, name: string, kind: BuiltinKind, position: [number, num
 });
 
 /** Default room (fallback when data/scenes/puzzle.json is missing/empty).
- *  Phase B layout = reference image 1 (painting ~2.5 m straight ahead, floor
- *  in front of it left open, gramophone front-left, easel front-right) plus
- *  reference image 2 (arched windows with blue curtains, upholstered
- *  furniture, flowers) as ONE room. Mirrors data/scenes/puzzle.json. */
-export const DEFAULT_PUZZLE_LAYOUT: ReadonlyArray<SceneObject> = [
-  obj("painting", "Painting (Orbis)", "painting", [0, 1.75, ROOM.minZ + 0.05]),
-  obj("easel", "Easel + canvas", "easel", [0.8, 0, -1.25], facingOrigin(0.8, -1.25)),
-  obj("gramophone", "Gramophone", "gramophone", [-0.85, 0.8, -1.25], facingOrigin(-0.85, -1.25)),
-  obj("pedestal", "Button pedestal", "pedestal", [-1.25, 0, 0.1], facingOrigin(-1.25, 0.1)),
-  obj("table-gramophone", "Round table (gramophone)", "round-table", [-0.85, 0, -1.25]),
-  obj("rug", "Royal rug", "royal-rug", [0, 0, -0.9]),
-  obj("lantern-l", "Wall lantern L", "wall-lantern", [-1.62, 1.75, ROOM.minZ]),
-  // Right lantern sits above the dresser: the tool rack fills its old spot
-  // beside the painting.
-  obj("lantern-r", "Wall lantern R", "wall-lantern", [ROOM.maxX, 1.75, 0.6], -90),
-  obj("banner-l", "Royal banner L", "royal-banner", [-1.95, 2.85, ROOM.minZ]),
-  obj("banner-r", "Royal banner R", "royal-banner", [1.95, 2.85, ROOM.minZ]),
-  obj("column-l", "Stone column L", "stone-column", [-2.3, 0, -2.4]),
-  obj("column-r", "Stone column R", "stone-column", [2.3, 0, -2.4]),
-  obj("plant-fl", "Potted plant FL", "potted-plant", [-1.95, 0, -2.05]),
-  obj("plant-fr", "Potted plant FR", "potted-plant", [1.95, 0, -2.05]),
-  obj("window-l", "Arched window L", "arched-window", [ROOM.minX, 0, -1.0], 90),
-  obj("curtains-l", "Curtains L", "curtains", [ROOM.minX, 0, -1.0], 90),
-  obj("ivy-l", "Ivy L", "ivy", [ROOM.minX + 0.02, 3.1, -1.85], 90),
-  obj("sofa", "Chaise sofa", "chaise-sofa", [-2.06, 0, 0.75], 90),
-  obj("vanity", "Vanity", "vanity", [-1.55, 0, 2.13], 180),
-  obj("stool-vanity", "Stool (vanity)", "stool", [-1.55, 0, 1.55]),
-  obj("window-r", "Arched window R", "arched-window", [ROOM.maxX, 0, -1.0], -90),
-  obj("curtains-r", "Curtains R", "curtains", [ROOM.maxX, 0, -1.0], -90),
-  obj("ivy-r", "Ivy R", "ivy", [ROOM.maxX - 0.02, 3.1, -1.85], -90),
-  obj("dresser", "Dresser", "dresser", [2.22, 0, 0.6], -90),
-  obj("lamp-dresser", "Crystal lamp", "crystal-lamp", [2.22, 0.87, 0.92], -90),
-  obj("vase-dresser", "Hydrangea vase", "hydrangea-vase", [2.22, 0.87, 0.35], -90),
-  obj("books-dresser", "Book stack", "book-stack", [2.25, 0.87, 0.65], -80),
-  obj("cabinet", "Curio cabinet", "cabinet", [2.27, 0, 1.75], -90),
-  obj("window-b", "Arched window back", "arched-window", [0, 0, ROOM.maxZ], 180),
-  obj("curtains-b", "Curtains back", "curtains", [0, 0, ROOM.maxZ], 180),
-  obj("stool-easel", "Stool (easel)", "stool", [1.4, 0, -0.75]),
-  // Phase C: sunlight on the floor (sun from the left)
-  obj("sun-l", "Sun patch (left window)", "sun-patch", [ROOM.minX, 0, -1.0], 90),
-  obj("sun-b", "Sun patch (back window)", "sun-patch", [0, 0, ROOM.maxZ], 180),
-];
+ *  Octagonal chamber from the top-down layout study (app/puzzle/roomLayout.ts,
+ *  which also holds the gameplay prop placements). Mirrors
+ *  data/scenes/puzzle.json (scripts/write-puzzle-layout.cjs). */
+export const DEFAULT_PUZZLE_LAYOUT: ReadonlyArray<SceneObject> = ROOM_LAYOUT.map((o) => ({
+  ...obj(o.id, o.name, o.kind as BuiltinKind, o.position, o.rotY),
+  ...(o.scale ? { scale: o.scale } : {}),
+}));
 
 /** Saved puzzle scene → usable layout: an empty/missing file gives the
  *  default room; each singleton exists exactly once (missing → default,
