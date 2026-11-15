@@ -20,6 +20,8 @@ const SCENE_STYLE: Record<MockScene, { bg: string; fg: string; label: string }> 
 export type MockSource = {
   stream: MediaStream | null;
   setScene: (s: MockScene) => void;
+  /** Optional override for the scene label line (e.g. room + action). null = default. */
+  setLabel: (text: string | null) => void;
   stop: () => void;
   error: string | null;
 };
@@ -30,6 +32,7 @@ export function createMockSource(width = 832, height = 468, fps = 30): MockSourc
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   let scene: MockScene = "initial";
+  let labelOverride: string | null = null;
   let raf = 0;
   const t0 = performance.now();
 
@@ -72,7 +75,7 @@ export function createMockSource(width = 832, height = 468, fps = 30): MockSourc
     ctx.fillText("MOCK — NOT LIVE ORBIS", 20, 36);
     ctx.fillStyle = st.fg;
     ctx.font = "bold 36px sans-serif";
-    ctx.fillText(st.label, 20, height - 70);
+    ctx.fillText(labelOverride ?? st.label, 20, height - 70, width - 40);
     ctx.font = "28px monospace";
     ctx.fillText(`t=${t.toFixed(1)}s`, 20, height - 30);
 
@@ -105,6 +108,9 @@ export function createMockSource(width = 832, height = 468, fps = 30): MockSourc
     error,
     setScene: (s) => {
       scene = s;
+    },
+    setLabel: (text) => {
+      labelOverride = text;
     },
     stop: () => {
       clearInterval(interval);

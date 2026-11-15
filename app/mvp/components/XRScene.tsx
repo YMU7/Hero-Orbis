@@ -8,6 +8,8 @@ import {
   type SelectSource,
 } from "../lib/controllerInteraction";
 import { VideoTextureMonitor, type VideoHealth } from "../lib/videoTextureHealth";
+import { debug } from "../lib/debugState";
+import { loadEnvironmentInto } from "../../lib/sceneData/environment";
 
 // Three.js renderer + WebXR + frame loop (brief §6, §7).
 //
@@ -38,6 +40,14 @@ export type XRSceneProps = {
 const PLANE_W = 1.92;
 const PLANE_H = 1.08;
 const PLANE_POS = new THREE.Vector3(0, 1.6, -2.4);
+
+/** Runtime-only layout, exported read-only so the Scene Editor (/editor) can
+ *  show these as locked reference shapes. Not part of the editable scene. */
+export const MVP_RUNTIME_LAYOUT = {
+  plane: { w: PLANE_W, h: PLANE_H, pos: [PLANE_POS.x, PLANE_POS.y, PLANE_POS.z] as const },
+  buttons: { spacing: 1.5, y: 0.65, z: -1.5, size: [0.6, 0.32, 0.12] as const, lookAt: [0, 1.5, 0.3] as const },
+  viewer: { eyeHeight: 1.6 },
+} as const;
 
 function makeLabelTexture(
   w: number,
@@ -124,6 +134,14 @@ export function XRScene(props: XRSceneProps) {
     grid.position.y = 0.001;
     scene.add(grid);
 
+    // Editable environment authored in /editor (data/scenes/mvp.json). A
+    // separate group: never raycast-registered, never touches the video
+    // plane, buttons or controllers. Load failures are logged, not fatal.
+    const environment = new THREE.Group();
+    environment.name = "environment";
+    scene.add(environment);
+    void loadEnvironmentInto(environment, (m, err) => debug.push(err ? "error" : "info", m));
+
     // Video plane + frame. MeshBasicMaterial, toneMapped:false (brief Gate C).
     const frame = new THREE.Mesh(
       new THREE.BoxGeometry(PLANE_W + 0.08, PLANE_H + 0.08, 0.04),
@@ -197,7 +215,7 @@ export function XRScene(props: XRSceneProps) {
     });
     propsRef.current.buttons.forEach((b, i, arr) => {
       // Low and wide so they never occlude the HUD under the video plane.
-      const x = (i - (arr.length - 1) / 2) * 1.5;
+      const x = (i - (arr.length - 1) / 2) * MVP_RUNTIME_LAYOUT.buttons.spacing;
       const mat = new THREE.MeshStandardMaterial({
         color: b.color,
         emissive: 0x000000,

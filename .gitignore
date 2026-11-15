@@ -15,3 +15,8 @@ node_modules
 
 # next dev --experimental-https self-signed certs
 certificates
+
+# Scene Editor: separate Next build dirs (NEXT_DIST_DIR) and local scene backups
+.next-*/
+data/scenes/backups/*.json
+data/scenes/*.prev.json

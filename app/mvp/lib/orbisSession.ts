@@ -260,5 +260,9 @@ export function useOrbisSession(opts: {
     disconnect: () => s.disconnect(),
     startGeneration,
     steer,
+    // Lower-level surface for other controllers on the SAME connection (e.g.
+    // /rooms): the logged/refusal-aware command wrapper and the typed client.
+    run,
+    client: s,
   };
 }
