@@ -21,32 +21,40 @@
 // four fixed, verbatim) + one action sentence. Change only the action.
 
 /** Fixed visual style (never edited per beat). */
+// Colour pass (2026-11-14, user: "saturation too high"): the first version
+// gave deep royal blue, vivid purple and strong gold. Wording now asks for a
+// soft, muted, low-saturation pastel grade explicitly, in style, outfit and
+// setting alike (one vivid word anywhere pulls the whole frame back up).
 export const PUZZLE_STYLE =
-  "Cute stylized 3D fantasy animation with a whimsical fairytale diorama feel: soft rounded shapes, smooth stylized materials, warm golden sunlight, gentle soft shadows and a pastel palette of sky blue, ivory, lavender and gold.";
+  "Cute stylized 3D fantasy animation with a whimsical fairytale diorama feel: soft rounded shapes, smooth matte stylized materials, warm hazy morning sunlight, soft diffused frontal light on faces, gentle soft shadows, gentle contrast and a soft, muted, low-saturation pastel palette of powder blue, warm ivory, dusty lavender and pale soft gold, with creamy highlights.";
 
 /** Fixed princess identity (never edited per beat). */
+// Face pass (2026-11-14, user: "face stiff, looks old"): youthful cartoon
+// proportions spelled out (round soft face, big bright eyes, tiny nose and
+// mouth, smooth skin) and softer expressions in the actions — strongly
+// pinched brows / wide-open mouths read as wrinkles and age.
 export const PRINCESS_IDENTITY =
-  "A young princess with a short golden-blonde wavy bob haircut, a small delicate gold crown, large expressive brown eyes, rosy cheeks and rounded, charming animated facial proportions, wearing a layered royal gown in blue and ivory with gold embroidered star patterns, white puff sleeves, a gold brooch at the neckline and small gold accessories.";
+  "A cheerful young girl princess with youthful, cute, childlike cartoon proportions: a round soft face with full cheeks and a gentle pink blush, big round sparkling brown eyes with large bright highlights, a tiny button nose and a small mouth, smooth flawless stylized skin and soft rounded features; a short golden-blonde wavy bob haircut and a small delicate pale-gold crown; she wears a layered royal gown in soft powder blue and warm ivory with pale gold embroidered star patterns, cream puff sleeves, a small pale-gold brooch at the neckline and delicate pale-gold accessories.";
 
 /** Fixed world inside the painting. Deliberately does NOT say "painting" or
  *  "frame": measured 16:54 — "inside an enchanted painting" made the model
  *  draw pillars and a gold frame edge in the picture (a frame within our 3D
  *  frame). Described positively as an open view filling the picture. */
 export const PAINTING_SETTING =
-  "She stands outdoors on a sunlit fairytale garden terrace with lavender flowers and hydrangeas, a small waterfall and a distant pastel castle with pointed towers under a soft blue sky; the open garden fills the whole picture from edge to edge.";
+  "She stands outdoors on a sunlit fairytale garden terrace with pale lavender flowers and dusty-blue hydrangeas, a small waterfall and a distant pastel castle with pointed towers under a pale hazy sky; the open garden fills the whole picture from edge to edge.";
 
 /** Fixed camera. */
 export const PUZZLE_CAMERA =
-  "Static camera, eye-level medium shot framing the princess from the knees up, centred in frame, facing the camera, single continuous take.";
+  "Static camera, eye-level medium shot framing the princess from the waist up, centred in frame, facing the camera, her face clearly visible, single continuous take.";
 
 /** Same princess, outfit, setting and camera in BOTH prompts. */
 export const PUZZLE_SCENE = `${PRINCESS_IDENTITY} ${PAINTING_SETTING} ${PUZZLE_CAMERA}`;
 
 export const PUZZLE_ACTIONS = {
   urging:
-    "She is trapped inside the painting and worried: her eyebrows are pinched together, her eyes are wide and anxious, and she calls out to the viewer with her mouth wide open; she steps up close to the picture surface, presses both palms flat against it as if against invisible glass, then waves both arms and beckons quickly, bouncing on her toes with impatience. The camera does not move.",
+    "She looks worried and pleading in a cute, gentle way: her eyebrows lift softly, her big eyes glisten, and she calls out to the viewer with a small open mouth; she leans close to the picture surface, presses both small hands flat against it as if against invisible glass, then waves both arms and beckons quickly, bouncing with impatience. Her face stays soft, smooth and youthful. The camera does not move.",
   happy:
-    "Her worry melts away: her shoulders relax, she presses her hands together and laughs happily with a big open smile and joyful curved eyes, her shoulders shaking with laughter, then gives a cheerful little hop and claps. The camera does not move.",
+    "Her worry melts away: she beams with a big bright smile and joyful curved eyes, giggles happily with her shoulders bouncing, presses her hands together, then gives a cheerful little hop and claps. Her face stays soft, smooth and youthful. The camera does not move.",
 } as const;
 
 export type PuzzleBeat = keyof typeof PUZZLE_ACTIONS;
@@ -69,6 +77,11 @@ export const PUZZLE_AUDIO_PROMPTS: Record<PuzzleBeat, string> = {
  *  only. Must show THIS princess inside the painting world — never the whole
  *  room concept art. Non-16:9 images are squashed to 832×480 by the model. */
 export const PUZZLE_INITIAL_IMAGE: string | null = null;
+
+/** Display-side saturation of the painting (1 = as generated, 0 = grey).
+ *  Applied in the painting shader every frame — no Orbis command, no credit.
+ *  Tunable live from the panel. */
+export const PAINTING_SATURATION = 0.85;
 
 /** Same seed/tier as the style benchmark room tests. */
 export const PUZZLE_SEED = 42;

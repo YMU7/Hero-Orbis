@@ -158,6 +158,45 @@ The prompts describe visual traits only and name no film, studio, game or series
 | Run 2 after the fix, 16:56:27–16:56:52: no inner frame; same identity as run 1; anxious and calling out | PASS | `orbis-v3-run2-urging-a.png`, `orbis-v3-run2-urging-b.png`. One frame in between showed her with eyes closed and calling out, less obviously anxious |
 | Happy beat with the fixed setting | NOT TESTED | Not repeated, to save credits |
 
+**Colour pass (2026-11-14, about 17:58): lower saturation.** The user judged the generated picture too saturated: deep royal blue, vivid purple, strong gold. Two changes:
+
+1. **Prompt (source).**
+   - `PUZZLE_STYLE` now asks for "smooth matte stylized materials, warm hazy morning sunlight, gentle contrast and a soft, muted, low-saturation pastel palette of powder blue, warm ivory, dusty lavender and pale soft gold, with creamy highlights".
+   - `PRINCESS_IDENTITY` uses a "soft powder blue and warm ivory" gown with "pale gold" stars and crown, and cream sleeves.
+   - `PAINTING_SETTING` uses "pale lavender flowers and dusty-blue hydrangeas" and a "pale hazy sky".
+   - The princess's identity is otherwise unchanged.
+2. **Display (no credit).** The painting's shader applies a saturation factor, `paintingGrade`, read every frame. The default is `PAINTING_SATURATION = 0.85`, and the panel has a 0–1.3 slider ("Painting colour (display only, no credit)").
+
+| Case | Result | Evidence |
+|---|---|---|
+| Live run 17:58:27–17:59:13 (about 46 s, disconnected) with the muted prompt | PARTIAL | `puzzle-draw-sword/orbis-v4-muted-urging.png`, compared with `orbis-v3-run2-urging-b.png`. The gown is lighter periwinkle instead of deep royal blue, and there is a warm haze in the background. The hydrangeas and the gold crown are still fairly saturated, so the model keeps a vivid bias. Identity is preserved: blonde bob, crown, star gown, anxious expression |
+| Display saturation slider | PASS | MOCK painting at 1.0 and at 0.3: blue and red go nearly grey, applied instantly. The live stream uses the same material path; the live run was too short to take an in-room screenshot |
+| Default 0.85 applied after rebuild | PASS | `next build` passed; `/puzzle` returns 200 locally and through the tunnel |
+
+**Style tuner and face pass (2026-11-14, 18:09).**
+
+*Style tuner* (`app/puzzle/components/StyleTuner.tsx`, `app/puzzle/lib/style.ts`, `/puzzle/api/style`):
+
+- **Colour grade:** saturation, brightness, contrast, warmth, tint and gamma, applied to the painting by its shader every frame. No Orbis command, no credit.
+- **Prompt parts:** style and palette (with four presets: soft muted pastel, airy and creamy, warm storybook glow, clean and bright), character, background, camera, and the two action lines. There is also a free notes field.
+- **Apply to live picture:** saves the style, then re-sends the current beat's prompt on the same session. The picture morphs at the next chunk; there is no restart.
+- **Save:** writes `data/puzzle-style.json`, plus a timestamped copy in `data/puzzle-style-history/`. Every run composes its prompts from this file. Without a file, the defaults in `puzzleConfig.ts` are used.
+
+*Face* (user: "stiff and looks old"):
+
+- `PRINCESS_IDENTITY` now spells out youthful cartoon proportions: a round soft face with full cheeks and a gentle blush, big round sparkling eyes, a tiny button nose and small mouth, and smooth stylized skin.
+- `PUZZLE_STYLE` adds "soft diffused frontal light on faces".
+- The camera is now waist-up with the face clearly visible, which gives the face more pixels.
+- The actions are softer: "eyebrows lift softly, big eyes glisten, small open mouth" instead of pinched brows and a wide-open mouth. Both actions end with "Her face stays soft, smooth and youthful".
+
+| Case (live, 18:09:10–18:11:10, disconnected) | Result | Evidence |
+|---|---|---|
+| Face, urging | PASS | Young cartoon face, big eyes, small nose and mouth, smooth skin, lively expression: `puzzle-draw-sword/orbis-v5-face-urging.jpg`. Colours in the raw stream are still fairly vivid (hydrangeas, crown) |
+| Style tuner, "Apply to live picture" with the airy preset | PASS | `set_prompt(puzzle:urging, style tuner) ok` → `style applied live (urging) at chunk 22`. A hazier, lighter background; identity kept: `orbis-v5-airy-preset-live.png` |
+| Display grade on the painting in the room (saturation 0.6, warmth 0.25) | PASS | Soft, muted, warm picture: `orbis-v5-room-grade-sat060-warm025.jpg` |
+| Happy beat with the new face | PASS | `SWORD (score 0.84)` → `happy prompt acknowledged at chunk 46`. Smiling with curved eyes, youthful: `orbis-v5-happy.png` |
+| Saved style file | — | The test's save (airy preset) was deleted afterwards, so the file only ever holds the user's own choice |
+
 ### Recognition (unchanged algorithm, new canvas size)
 
 - **Blade:** one long, nearly straight stroke.

@@ -13,6 +13,8 @@ import { MOCK_LABEL, usePuzzleController } from "./lib/usePuzzleController";
 import { puzzleStore, usePuzzleState } from "./lib/puzzleState";
 import { fetchPuzzleToken } from "./lib/puzzleToken";
 import { recognizeSword, type Stroke } from "./lib/swordRecognizer";
+import { parseStyle } from "./lib/style";
+import { applyPaintGrade } from "./lib/roomParts";
 import { PuzzleScene, type RoomApi } from "./components/PuzzleScene";
 import { PuzzlePanel } from "./components/PuzzlePanel";
 
@@ -143,6 +145,20 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   }, [status, mode]);
   useEffect(() => () => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+  }, []);
+
+  // Style tuner: load the saved look (data/puzzle-style.json) on start, so
+  // runs use the user's chosen prompt parts and colour grade.
+  useEffect(() => {
+    void fetch("/puzzle/api/style", { cache: "no-store" })
+      .then((r) => r.json() as Promise<{ saved: boolean; style: unknown }>)
+      .then((b) => {
+        const st = parseStyle(b.style);
+        puzzleStore.set({ style: st, styleSavedAt: b.saved ? (st.savedAt ?? null) : null });
+        applyPaintGrade(st.grade);
+        debug.push("info", `[puzzle] style ${b.saved ? `loaded (saved ${st.savedAt})` : "defaults (no saved style)"}`);
+      })
+      .catch((e) => debug.push("error", `[puzzle] style load failed: ${(e as Error).message}`));
   }, []);
 
   // Dev-only emulation (?emulate=quest3) before the scene's VRButton probes XR.
@@ -413,6 +429,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
           onReset={() => puzzle.resetPuzzle("Reset puzzle (panel)")}
           onClear={clearBoard}
           onParams={() => evaluate(roomApi.current?.strokes() ?? [])}
+          onApplyStyle={() => puzzle.applyStyleLive()}
           resolution={resolution}
           sources={
             <div className="grid grid-cols-2 gap-2">

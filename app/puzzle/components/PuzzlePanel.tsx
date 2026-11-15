@@ -4,6 +4,7 @@ import { type ReactNode } from "react";
 import { useDebug, type SourceMode } from "../../mvp/lib/debugState";
 import { usePuzzleState, puzzleStore } from "../lib/puzzleState";
 import { DEFAULT_SWORD_PARAMS, type SwordParams } from "../lib/swordRecognizer";
+import { StyleTuner } from "./StyleTuner";
 
 // Desktop diagnostics + controls for /puzzle. Reads stores only; actions are
 // callbacks. There is deliberately NO "solve" button: only a recognised
@@ -52,6 +53,7 @@ export function PuzzlePanel(p: {
   onReset: () => void;
   onClear: () => void;
   onParams: () => void;
+  onApplyStyle: () => Promise<{ ok: boolean; reason?: string }>;
   resolution: string | null;
   sources: ReactNode;
 }) {
@@ -124,6 +126,8 @@ export function PuzzlePanel(p: {
         <Row k="emulation" v={d.emulation} />
         <Row k="XR / inputs" v={`${d.xrSessionActive ? "in XR" : "2D"} · ${d.inputSources.length}`} />
       </section>
+
+      <StyleTuner live={p.mode === "live" && d.reactorStatus === "ready"} onApplyLive={p.onApplyStyle} />
 
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
         <h3 className="mb-2 text-xs uppercase tracking-wider text-zinc-400">Recognizer</h3>

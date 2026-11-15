@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { BOARD_H, BOARD_W, ROOM } from "../puzzleConfig";
+import { BOARD_H, BOARD_W, PAINTING_SATURATION, ROOM } from "../puzzleConfig";
 import { Gramophone } from "./gramophone";
 import { DrawingBoard } from "./drawingBoard";
 import type { SceneDoc, SceneObject } from "../../lib/sceneData/types";
@@ -284,6 +284,26 @@ function sideTable() {
 
 // ── Interactive singletons ──────────────────────────────────────────────────
 
+/** Live colour grade of the Orbis painting (read by its shader every frame;
+ *  no Orbis command, no credit). Set through applyPaintGrade(). */
+export const paintingGrade = {
+  saturation: { value: PAINTING_SATURATION },
+  brightness: { value: 1 },
+  contrast: { value: 1 },
+  warmth: { value: 0 },
+  tint: { value: 0 },
+  gamma: { value: 1 },
+};
+
+export function applyPaintGrade(g: { saturation: number; brightness: number; contrast: number; warmth: number; tint: number; gamma: number }) {
+  paintingGrade.saturation.value = g.saturation;
+  paintingGrade.brightness.value = g.brightness;
+  paintingGrade.contrast.value = g.contrast;
+  paintingGrade.warmth.value = g.warmth;
+  paintingGrade.tint.value = g.tint;
+  paintingGrade.gamma.value = g.gamma;
+}
+
 export const PAINT_W = 2.4;
 export const PAINT_H = 1.35;
 
@@ -294,6 +314,42 @@ export function buildPainting() {
   group.add(ornateFrame(PAINT_W, PAINT_H));
   const placeholder = makeCanvasTex(832, 468);
   const paintMat = new THREE.MeshBasicMaterial({ map: placeholder.tex, toneMapped: false });
+  // Display-side colour grade (saturation), shared uniform — see paintingGrade.
+  paintMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uPaintSaturation = paintingGrade.saturation;
+    shader.uniforms.uPaintBrightness = paintingGrade.brightness;
+    shader.uniforms.uPaintContrast = paintingGrade.contrast;
+    shader.uniforms.uPaintWarmth = paintingGrade.warmth;
+    shader.uniforms.uPaintTint = paintingGrade.tint;
+    shader.uniforms.uPaintGamma = paintingGrade.gamma;
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "void main() {",
+        [
+          "uniform float uPaintSaturation;",
+          "uniform float uPaintBrightness;",
+          "uniform float uPaintContrast;",
+          "uniform float uPaintWarmth;",
+          "uniform float uPaintTint;",
+          "uniform float uPaintGamma;",
+          "void main() {",
+        ].join("\n"),
+      )
+      .replace(
+        "#include <map_fragment>",
+        [
+          "#include <map_fragment>",
+          "  vec3 pc = max(diffuseColor.rgb, vec3(0.0));",
+          "  pc = pow(pc, vec3(1.0 / uPaintGamma));",
+          "  pc *= uPaintBrightness;",
+          "  pc = (pc - 0.18) * uPaintContrast + 0.18;",
+          "  pc += vec3(0.06 * uPaintWarmth, -0.04 * uPaintTint, -0.06 * uPaintWarmth);",
+          "  pc.rb += vec2(0.02 * uPaintTint);",
+          "  float paintLuma = dot(pc, vec3(0.2126, 0.7152, 0.0722));",
+          "  diffuseColor.rgb = max(mix(vec3(paintLuma), pc, uPaintSaturation), vec3(0.0));",
+        ].join("\n"),
+      );
+  };
   const paintMesh = new THREE.Mesh(new THREE.PlaneGeometry(PAINT_W, PAINT_H), paintMat);
   paintMesh.position.z = 0.01;
   group.add(paintMesh);

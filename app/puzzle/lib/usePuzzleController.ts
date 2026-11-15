@@ -9,7 +9,8 @@ import {
 import type { useOrbisSession } from "../../mvp/lib/orbisSession";
 import type { MockSource } from "../../mvp/lib/mockSource";
 import { debug, type SourceMode } from "../../mvp/lib/debugState";
-import { PUZZLE_AUDIO_PROMPTS, PUZZLE_INITIAL_IMAGE, PUZZLE_PROMPTS, PUZZLE_RESOLUTION, PUZZLE_SEED, type PuzzleBeat } from "../puzzleConfig";
+import { PUZZLE_AUDIO_PROMPTS, PUZZLE_INITIAL_IMAGE, PUZZLE_RESOLUTION, PUZZLE_SEED, type PuzzleBeat } from "../puzzleConfig";
+import { composePrompt } from "./style";
 import { puzzleStore } from "./puzzleState";
 
 // Orbis lifecycle for "the princess in the painting" (same patterns as
@@ -150,7 +151,7 @@ export function usePuzzleController(opts: {
         const ap = await cmd(token, "set_audio_prompt(urging)", () => c.setAudioPrompt({ prompt: PUZZLE_AUDIO_PROMPTS.urging }), true);
         if (!ap.ok) log("set_audio_prompt refused — audio follows the picture", "error");
       }
-      const p = await cmd(token, "set_prompt(puzzle:urging)", () => c.setPrompt({ prompt: PUZZLE_PROMPTS.urging }), true);
+      const p = await cmd(token, "set_prompt(puzzle:urging)", () => c.setPrompt({ prompt: composePrompt(puzzleStore.get().style.prompt, "urging") }), true);
       dirty.current = true;
       if (!p.ok) return fail("set_prompt(urging) refused");
       if (!isCurrent(token)) return log("superseded before start");
@@ -225,7 +226,7 @@ export function usePuzzleController(opts: {
     if (PUZZLE_AUDIO_PROMPTS.happy) {
       void runRef.current("set_audio_prompt(happy)", () => c.setAudioPrompt({ prompt: PUZZLE_AUDIO_PROMPTS.happy }), true);
     }
-    const r = await cmd(token, "set_prompt(puzzle:happy)", () => c.setPrompt({ prompt: PUZZLE_PROMPTS.happy }), true);
+    const r = await cmd(token, "set_prompt(puzzle:happy)", () => c.setPrompt({ prompt: composePrompt(puzzleStore.get().style.prompt, "happy") }), true);
     if (!isCurrent(token)) return { ok: false, reason: "run was reset" };
     if (!r.ok) {
       puzzleStore.set({ phase: "urging", solvedRun: null, lastError: "set_prompt(happy) refused" });
@@ -236,6 +237,20 @@ export function usePuzzleController(opts: {
     log(`happy prompt acknowledged at chunk ${chunk ?? "?"} — picture morphs at the next chunk boundary`, "cmd");
     return { ok: true };
   }, [cmd, setMockBeat]);
+
+  /** Style tuner: re-send the current beat's prompt with the edited style
+   *  (same session — the picture morphs at the next chunk, no restart). */
+  const applyStyleLive = useCallback(async (): Promise<SolveOutcome> => {
+    const s = puzzleStore.get();
+    if (modeRef.current !== "live") return { ok: false, reason: "not in live mode" };
+    if (statusRef.current !== "ready") return { ok: false, reason: "not connected" };
+    if (s.phase !== "urging" && s.phase !== "solved" && s.phase !== "priming") return { ok: false, reason: `not generating (${s.phase})` };
+    const beat: PuzzleBeat = s.phase === "solved" ? "happy" : "urging";
+    const r = await cmd(s.run, `set_prompt(puzzle:${beat}, style tuner)`, () => clientRef.current.setPrompt({ prompt: composePrompt(puzzleStore.get().style.prompt, beat) }), true);
+    if (!r.ok) return { ok: false, reason: "set_prompt refused" };
+    log(`style applied live (${beat}) at chunk ${debug.get().currentChunk ?? "?"}`, "cmd");
+    return { ok: true };
+  }, [cmd]);
 
   /** Gramophone changed (mock label only; live audio is muted locally by the app). */
   const onSound = useCallback(
@@ -300,5 +315,5 @@ export function usePuzzleController(opts: {
     resetPuzzle(`mode ${mode}`);
   }, [mode, resetPuzzle]);
 
-  return { resetPuzzle, solve, onSound };
+  return { resetPuzzle, solve, onSound, applyStyleLive };
 }

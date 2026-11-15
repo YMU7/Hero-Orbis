@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { DEFAULT_SWORD_PARAMS, type SwordParams, type SwordResult } from "./swordRecognizer";
 import { DEFAULT_REQUIRE_SOUND_FIRST } from "../puzzleConfig";
+import { defaultStyle, type PuzzleStyle } from "./style";
 
 // UI-facing state of the /puzzle test. Written by usePuzzleController and the
 // scene's interaction callbacks; read by the panel, the HUD and the scene.
@@ -47,6 +48,10 @@ export type PuzzleStateData = {
   /** A local hint line shown in the room (e.g. "she's trying to tell you something"). */
   hint: string | null;
   params: SwordParams;
+  /** Style tuner: colour grade + prompt parts (saved to data/puzzle-style.json). */
+  style: PuzzleStyle;
+  /** savedAt of the style file on the server (null = never saved). */
+  styleSavedAt: string | null;
   /** Who is holding the crayon / tonearm (for HUD/debug). */
   crayonHolder: string | null;
   tonearmHolder: string | null;
@@ -80,6 +85,8 @@ export const usePuzzleState = create<PuzzleState>((set) => ({
   swordFlashUntil: 0,
   hint: null,
   params: DEFAULT_SWORD_PARAMS,
+  style: defaultStyle(),
+  styleSavedAt: null,
   crayonHolder: null,
   tonearmHolder: null,
   drawMode: "none",
