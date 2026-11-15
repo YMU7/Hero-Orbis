@@ -44,6 +44,11 @@ function sword(royal: boolean) {
   return g;
 }
 
+/** Path of one curse thread in the seal's local frame (side x = -1 | 1):
+ *  crystal → along the frame's bottom rail → up the side rail → top corner. */
+export const CURSE_THREAD_POINTS = (x: number) =>
+  [[0.1 * x, 0], [0.6 * x, -0.05], [1.2 * x, -0.03], [1.36 * x, 0.02], [1.37 * x, 0.8], [1.36 * x, 1.65]].map(([px, py]) => new THREE.Vector3(px, py, -0.03 + 0.005 * Math.abs(px)));
+
 /** Unity gameplay, expressed in Hero's existing room coordinate space. */
 export class UnityRoom {
   readonly rescue: RescueRoom;
@@ -52,7 +57,9 @@ export class UnityRoom {
   readonly wallSword: PhysicalTool;
   readonly reward: PhysicalTool;
   readonly mute = new THREE.Group();
-  private readonly red = new THREE.Group();
+  /** The silence curse visuals (hidden once broken). Public so the look-dev
+   *  layer (curseVisuals.ts) can dress it; gameplay never reads it. */
+  readonly red = new THREE.Group();
   private readonly active = new THREE.Group();
   private readonly shards: Array<{ mesh: THREE.Mesh; v: THREE.Vector3; life: number }> = [];
   private activated = false;
@@ -62,7 +69,20 @@ export class UnityRoom {
   private readonly previousHead = new THREE.Vector3();
   private hasHead = false;
   private sealTime = 0;
-  private readonly sealMat = new THREE.MeshStandardMaterial({ color: 0xb98cf0, roughness: 0.25, metalness: 0.1, emissive: 0x8a4dff, emissiveIntensity: 0.3, flatShading: true, name: "curse-crystal" });
+  private readonly sealMat = new THREE.MeshStandardMaterial({ color: 0x8a5ad8, roughness: 0.25, metalness: 0.1, emissive: 0x6a2fe0, emissiveIntensity: 0.3, flatShading: true, name: "curse-crystal" });
+  /** Crystal microphone: violet crystal, glowing green while she speaks. */
+  private readonly micMat = new THREE.MeshStandardMaterial({ color: 0x9a6ae6, roughness: 0.22, metalness: 0.1, emissive: 0x6a2fe0, emissiveIntensity: 0.35, flatShading: true, name: "mic" });
+  /** Shards of the shattered red prohibition ring. */
+  private readonly shardMat = new THREE.MeshStandardMaterial({ color: 0xe0242e, emissive: 0x7a0010, emissiveIntensity: 0.45, roughness: 0.3, flatShading: true, name: "ring-shard" });
+  private speaking = false;
+  /** Visual only: the princess is (not) speaking right now. */
+  setSpeaking(on: boolean) {
+    if (on === this.speaking) return;
+    this.speaking = on;
+    this.micMat.color.setHex(on ? 0x6bff9e : 0x9a6ae6);
+    this.micMat.emissive.setHex(on ? 0x2bd47c : 0x6a2fe0);
+    this.micMat.emissiveIntensity = on ? 1.1 : 0.35;
+  }
   /** Unlit thread colour, pulsed with the core (no light, no transparency). */
   private readonly threadMat = new THREE.MeshBasicMaterial({ color: 0xd9a8ff, toneMapped: false, name: "curse-thread" });
 
@@ -117,7 +137,7 @@ export class UnityRoom {
     // with small crystal knots. Merged into ONE unlit mesh (one draw per eye).
     const parts: THREE.BufferGeometry[] = [];
     for (const x of [-1, 1]) {
-      const pts = [[0.1 * x, 0], [0.6 * x, -0.05], [1.2 * x, -0.03], [1.36 * x, 0.02], [1.37 * x, 0.8], [1.36 * x, 1.65]].map(([px, py]) => new THREE.Vector3(px, py, -0.03 + 0.005 * Math.abs(px)));
+      const pts = CURSE_THREAD_POINTS(x);
       parts.push(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 48, 0.006, 5, false).toNonIndexed());
       for (const k of [3, 5]) parts.push(new THREE.OctahedronGeometry(0.022, 0).translate(pts[k].x, pts[k].y, pts[k].z));
     }
@@ -129,14 +149,22 @@ export class UnityRoom {
     threadMesh.name = "curse-threads";
     threadMesh.raycast = () => {}; // decorative: desktop clicks still have to hit the core/ring, as before
     this.red.add(threadMesh);
-    const mic = box(this.active, [0.055, 0.11, 0.035], [0, 0.025, 0], mat(0xf1d48a, 0.6));
-    // Rounded microphone mesh.
-    this.active.remove(mic); mic.geometry.dispose();
-    const capsule = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.06, 4, 8), mic.material);
-    capsule.position.copy(mic.position); this.active.add(capsule);
-    box(this.active, [0.015, 0.09, 0.02], [0, -0.06, 0], mat(0xf1d48a, 0.6));
-    box(this.active, [0.10, 0.015, 0.025], [0, -0.1, 0], mat(0xf1d48a, 0.6));
-    this.mute.add(this.red, this.active); this.active.visible = false;
+    // Violet crystal microphone in the "mic" icon shape (capsule head in a
+    // U-shaped holder, stem, base). It is NOT part of the curse: it stays
+    // when the hammer shatters the red prohibition ring (this.red), and it
+    // glows green while the princess speaks (setSpeaking).
+    const crystalMic = new THREE.Group();
+    crystalMic.name = "crystal-mic";
+    const head = new THREE.Mesh(new THREE.CapsuleGeometry(0.036, 0.07, 3, 8), this.micMat);
+    head.position.y = 0.045;
+    const holder = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.009, 6, 20, Math.PI).rotateZ(Math.PI), this.micMat);
+    holder.position.y = 0.035;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.05, 8), this.micMat);
+    stem.position.y = -0.05;
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.014, 12).scale(1, 1, 0.45), this.micMat);
+    foot.position.y = -0.08;
+    crystalMic.add(head, holder, stem, foot);
+    this.mute.add(this.red, this.active, crystalMic); this.active.visible = false;
     this.rescue = new RescueRoom(physics, painting, board, this, onBeat); this.group.add(this.rescue.group);
   }
   tryGrab(g: Grabber, ray: THREE.Ray | null) {
@@ -157,7 +185,7 @@ export class UnityRoom {
     this.onSound(true); this.sound(); this.rescue.unmute();
     for (let i = 0; i < 28; i++) {
       const a = i * Math.PI * 2 / 28;
-      const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.022, 0), this.sealMat); // crystal shards (material shared with the core)
+      const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.022, 0), this.shardMat); // red ring shards (shared material)
       mesh.position.copy(this.mute.position).add(new THREE.Vector3(Math.cos(a) * 0.18, Math.sin(a) * 0.18, 0.04));
       this.group.add(mesh);
       this.shards.push({ mesh, v: new THREE.Vector3(Math.cos(a) * 0.8, 1 + Math.sin(a) * 0.8, 0.8), life: 2.5 });
@@ -209,7 +237,7 @@ export class UnityRoom {
   reset() {
     this.rescue.reset();
     this.activated = this.rewarded = this.hasHead = false;
-    this.red.visible = true; this.active.visible = false;
+    this.red.visible = true; this.active.visible = false; this.setSpeaking(false);
     this.reward.object.visible = false; this.reward.body.setEnabled(false);
     this.ambience?.stop(); this.ambience = null; this.onSound(false);
     for (const s of this.shards) { this.group.remove(s.mesh); s.mesh.geometry.dispose(); }

@@ -70,6 +70,8 @@ export type PuzzleSceneProps = {
   onBark: (id: string) => void;
   /** Orbis is catching up with a cue: the painting shimmers. */
   morphing: boolean;
+  /** True while a princess voice line is playing (the microphone glows green). */
+  isSpeaking?: () => boolean;
   showVideo: boolean;
   video: HTMLVideoElement | null;
   placeholderLines: string[];
@@ -564,6 +566,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       // Shimmer: fast in (the action just happened), slow out (the new
       // picture fades in underneath while Orbis morphs).
       paintingFx.time.value += dt;
+      unity.setSpeaking(!!p.isSpeaking?.());
       const target = p.morphing ? 1 : 0;
       paintingFx.shimmer.value += (target - paintingFx.shimmer.value) * Math.min(1, dt * (p.morphing ? 8 : 1.6));
       const wall = Date.now();

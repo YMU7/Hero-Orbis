@@ -4,10 +4,11 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { mat } from "./furniture";
-import { glowHalo, lookQuality } from "./lookdev";
+import { glowHalo, lookQuality, lookUniforms } from "./lookdev";
 import { fabricSet, woodGrainSet } from "./proceduralTextures";
 import type { UnityRoom } from "./unityRoom";
 import { RESCUE_LAYOUT } from "../roomLayout";
+import { dressCurse } from "./curseVisuals";
 
 // Look-dev pass: higher-fidelity models for the grabbable rescue props.
 //
@@ -45,6 +46,11 @@ function mats() {
     crystal: new THREE.MeshStandardMaterial({ color: 0xd6c8ff, emissive: 0x6c52c8, emissiveIntensity: 0.35, metalness: 0.3, roughness: 0.12, flatShading: true, name: "crystal" }),
     buttonBlue: new THREE.MeshStandardMaterial({ color: 0x9fb2ec, roughness: 0.4, name: "button-blue" }),
     slot: new THREE.MeshStandardMaterial({ color: 0x4a3c5e, roughness: 0.9, name: "slot" }),
+    pinkGrip: new THREE.MeshStandardMaterial({ color: 0xf2b8cf, roughness: 0.7, name: "pink-grip" }),
+    violetGrip: new THREE.MeshStandardMaterial({ color: 0x7d64b8, roughness: 0.7, name: "violet-grip" }),
+    lilacSteel: new THREE.MeshStandardMaterial({ color: 0xe4dcf6, metalness: HQ() ? 0.85 : 0.5, roughness: 0.22, name: "lilac-steel" }),
+    roseGold: new THREE.MeshStandardMaterial({ color: 0xf0b8a8, metalness: HQ() ? 0.85 : 0.5, roughness: 0.25, emissive: 0x3a1a14, emissiveIntensity: 0.2, name: "rose-gold" }),
+    ribbon: new THREE.MeshStandardMaterial({ color: 0xc3a6ee, roughness: 0.8, side: THREE.DoubleSide, name: "ribbon" }),
     pinkGem: new THREE.MeshStandardMaterial({ color: 0xf2a6c8, emissive: 0x8a3a64, emissiveIntensity: 0.3, metalness: 0.3, roughness: 0.1, flatShading: true, name: "pink-gem" }),
     flameOuter: new THREE.MeshStandardMaterial({ color: 0xffb13b, emissive: 0xff5a10, emissiveIntensity: 2.4, roughness: 0.6, flatShading: true, name: "flame-outer" }),
     flameCore: new THREE.MeshBasicMaterial({ color: 0xfff1b0, toneMapped: false, name: "flame-core" }),
@@ -121,6 +127,11 @@ function bladeGeometry(len: number, width: number, thick: number) {
 function dressSword(sw: THREE.Object3D, royal: boolean) {
   const m = mats();
   strip(sw);
+  if (!royal) {
+    // Art pass round 2: the grabbable decoy is sword #1 of the rack set.
+    SWORD_DESIGNS[0](sw);
+    return;
+  }
   const start = -0.15;
   const len = royal ? 0.71 : 0.49;
   const width = royal ? 0.07 : 0.046;
@@ -285,65 +296,173 @@ function dressPhoto(photo: THREE.Object3D) {
   for (const side of [1, -1]) part(photo, new THREE.PlaneGeometry(0.244, 0.294), pic, [0, 0, side * 0.0065], [0, side > 0 ? 0 : Math.PI, 0]);
 }
 
-// ── Magic Portrait Box (the hand-held capture tool) ─────────────────────────
-// Re-dresses the existing "camera" tool after the Magic Portrait Box sheet:
-// a small rectangular ivory box with lavender floral panels and fine gold
-// trim, a large flat top tray, a front crystal lens, a capture button and a
-// portrait-card slot. Same pivot (box centre), same collider, lens toward -Z
-// (the shutter ray and the flash disc are unchanged). Body 24 x 13 x 16 cm.
+// ── Magic camera (the hand-held capture tool) ───────────────────────────────
+// Art pass round 2b, on request: back to a camera (the Portrait Box read as a
+// printer). A small fairytale box camera in the room palette: ivory body,
+// lavender leather band, gold plates, a stepped gold lens barrel with a
+// crystal glass, a viewfinder, a crystal flash bulb, a shutter button and a
+// star emblem. Same pivot (body centre), same collider (fits inside the
+// 0.26 x 0.30 x 0.24 m box), lens toward -Z (the shutter ray and the flash
+// disc at z -0.152 are unchanged). It still prints the portrait card.
 function dressCamera(cam: THREE.Object3D) {
   const m = mats();
   strip(cam);
   const ivory = mat("ivory");
-  const lilac = m.lilacPaint;
-  // body + plinth + bun feet
-  part(cam, rbox(0.24, 0.11, 0.16, 0.018), ivory, [0, -0.01, 0]);
-  part(cam, rbox(0.252, 0.014, 0.172, 0.006), m.woodLight, [0, -0.068, 0]);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(cam, new THREE.SphereGeometry(0.011, 10, 8), m.gold, [sx * 0.105, -0.077, sz * 0.068]);
-  part(cam, rbox(0.244, 0.008, 0.164, 0.004), m.gold, [0, 0.046, 0]); // gold top band
-  // lavender inset panels (sides + back) with a small flower sprig each
-  for (const sx of [-1, 1]) {
-    part(cam, rbox(0.004, 0.07, 0.115, 0.002), lilac, [sx * 0.121, -0.012, 0]);
-    part(cam, rbox(0.003, 0.074, 0.119, 0.002), m.gold, [sx * 0.1205, -0.012, 0]);
-    for (let i = 0; i < 4; i++) part(cam, new THREE.SphereGeometry(0.0065, 6, 5), mat("flowerLilac"), [sx * 0.1235, -0.035 + i * 0.012, 0.01 - i * 0.006]);
-    part(cam, new THREE.SphereGeometry(0.009, 6, 5), mat("leaf"), [sx * 0.1235, -0.04, -0.014], [0, 0, 0], [0.4, 0.6, 1.4]);
+  // body, leather band, gold top and bottom plates
+  part(cam, rbox(0.2, 0.13, 0.1, 0.022), ivory, [0, 0, 0.01]);
+  part(cam, rbox(0.204, 0.066, 0.104, 0.012), m.lilacPaint, [0, -0.012, 0.01]);
+  for (const y of [-0.066, 0.066]) part(cam, rbox(0.206, 0.012, 0.106, 0.005), m.gold, [0, y, 0.01]);
+  // stepped lens barrel: gold mount, lavender ribbed barrel, gold front ring, crystal glass
+  part(cam, zcyl(0.052, 0.054, 0.016, 28), m.gold, [0.012, -0.004, -0.046]);
+  part(cam, zcyl(0.044, 0.046, 0.05, 28), m.lilacPaint, [0.012, -0.004, -0.078]);
+  for (const z of [-0.064, -0.08, -0.096]) part(cam, new THREE.TorusGeometry(0.046, 0.0035, 6, 28), m.gold, [0.012, -0.004, z]);
+  part(cam, zcyl(0.049, 0.049, 0.012, 28), m.gold, [0.012, -0.004, -0.108]);
+  part(cam, new THREE.TorusGeometry(0.04, 0.005, 6, 28), m.gold, [0.012, -0.004, -0.115]);
+  part(cam, new THREE.CircleGeometry(0.037, 28).rotateY(Math.PI), m.lensGlass, [0.012, -0.004, -0.116]);
+  part(cam, new THREE.IcosahedronGeometry(0.014, 0), m.crystal, [0.012, -0.004, -0.115], [0, 0, 0], [1, 1, 0.4]);
+  // viewfinder (top left) with a small glass window
+  part(cam, rbox(0.052, 0.032, 0.05, 0.008), ivory, [-0.055, 0.086, 0.012]);
+  part(cam, rbox(0.056, 0.006, 0.054, 0.003), m.gold, [-0.055, 0.1, 0.012]);
+  part(cam, rbox(0.03, 0.016, 0.004, 0.002), m.lensGlass, [-0.055, 0.087, -0.015]);
+  // crystal flash bulb on a gold cup (top right)
+  part(cam, new THREE.CylinderGeometry(0.008, 0.008, 0.026, 10), m.gold, [0.06, 0.084, 0.02]);
+  part(cam, new THREE.CylinderGeometry(0.024, 0.012, 0.014, 16), m.gold, [0.06, 0.1, 0.02]);
+  part(cam, new THREE.OctahedronGeometry(0.02, 0), m.crystal, [0.06, 0.12, 0.02], [0, 0.4, 0], [1, 1.2, 1]);
+  // shutter button + winding knob
+  part(cam, new THREE.CylinderGeometry(0.012, 0.014, 0.012, 16), m.gold, [0.022, 0.078, 0.035]);
+  part(cam, new THREE.CylinderGeometry(0.009, 0.009, 0.008, 16), m.buttonBlue, [0.022, 0.088, 0.035]);
+  part(cam, new THREE.CylinderGeometry(0.016, 0.016, 0.01, 12), m.gold, [-0.01, 0.077, 0.04]);
+  // star emblem on the front, strap lugs on the sides
+  part(cam, new THREE.OctahedronGeometry(0.016, 0), m.gold, [-0.068, 0.03, -0.042], [0, 0, Math.PI / 4], [1, 1, 0.35]);
+  for (const sx of [-1, 1]) part(cam, new THREE.TorusGeometry(0.012, 0.004, 6, 12), m.gold, [sx * 0.104, 0.045, 0.01], [0, Math.PI / 2, 0]);
+  // little lavender flower sprig on the right side
+  for (let i = 0; i < 4; i++) part(cam, new THREE.SphereGeometry(0.006, 6, 5), mat("flowerLilac"), [0.1035, -0.03 + i * 0.011, 0.03 - i * 0.006]);
+}
+
+// ── Magic fireball (art pass round 2b): a VFX flame, not a model ────────────
+// One GPU particle system, one draw per eye: camera-facing soft quads that
+// are born at the base, rise, pull together into a flame tip, cool from
+// white-gold to orange to rose and fade out, in a loop. Additive blending
+// gives the glow; a few large slow quads at the base make the hot core and
+// a few tiny fast ones are embers. Everything moves in the vertex shader on
+// the shared look clock, so the game loop does nothing. Same tool pivot,
+// collider and emerge scaling as before (the object scale is applied).
+
+const FIRE_FLAMES = 34;
+const FIRE_CORE = 4;
+const FIRE_EMBERS = 8;
+
+let fireVfxMat: THREE.ShaderMaterial | null = null;
+function fireVfxMaterial() {
+  if (fireVfxMat) return fireVfxMat;
+  fireVfxMat = new THREE.ShaderMaterial({
+    name: "fire-vfx",
+    uniforms: { uTime: lookUniforms.uTime },
+    transparent: true,
+    depthWrite: false,
+    // Normal alpha blending: additive washed out to white on the pastel room.
+    blending: THREE.NormalBlending,
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      attribute vec2 aCorner;   // quad corner, -1..1
+      attribute vec4 aSeed;     // phase, angle, radius, kind (0 flame, 1 core, 2 ember)
+      varying vec2 vCorner;
+      varying float vHeat;      // 1 = white-hot, 0 = cool tip
+      varying float vFade;
+      void main() {
+        float kind = aSeed.w;
+        float speed = kind < 0.5 ? 1.15 : (kind < 1.5 ? 0.5 : 0.7);
+        float t = fract(uTime * speed + aSeed.x);
+        float base = -0.09;
+        vec3 c;
+        float size;
+        if (kind < 0.5) {
+          // flame: born in a ring at the base, rises and converges to the tip
+          float r = aSeed.z * (1.0 - t) * (1.0 - 0.4 * t);
+          float wob = sin(uTime * 9.0 + aSeed.y * 3.0 + t * 6.0) * 0.012 * t;
+          c = vec3(cos(aSeed.y) * r + wob, base + t * t * 0.08 + t * 0.22, sin(aSeed.y) * r);
+          size = mix(0.07, 0.016, t);
+          vHeat = 1.0 - 1.5 * t;
+          vFade = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.55, 1.0, t));
+        } else if (kind < 1.5) {
+          // core: big soft glow that breathes at the base
+          c = vec3(cos(aSeed.y) * 0.012, base + 0.045 + sin(uTime * 5.0 + aSeed.x * 6.28) * 0.006, sin(aSeed.y) * 0.012);
+          size = 0.075 + 0.01 * sin(uTime * 7.0 + aSeed.y);
+          vHeat = 1.0;
+          vFade = 0.45;
+        } else {
+          // embers: tiny sparks drifting high above the flame
+          c = vec3(cos(aSeed.y) * aSeed.z * (0.4 + t) + sin(uTime * 3.0 + aSeed.y) * 0.015, base + 0.12 + t * 0.26, sin(aSeed.y) * aSeed.z * (0.4 + t));
+          size = 0.016 * (1.0 - t);
+          vHeat = 0.75;
+          vFade = 1.0 - t;
+        }
+        float objScale = length(modelMatrix[0].xyz);
+        vec4 mv = modelViewMatrix * vec4(c, 1.0);
+        mv.xy += aCorner * size * objScale;
+        vCorner = aCorner;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      varying vec2 vCorner;
+      varying float vHeat;
+      varying float vFade;
+      void main() {
+        // soft teardrop-ish blob: a little taller than wide
+        vec2 q = vCorner * vec2(1.0, 0.85);
+        float d = length(q);
+        float a = pow(clamp(1.0 - d, 0.0, 1.0), 1.3) * vFade * 0.85;
+        if (a < 0.003) discard;
+        vec3 hot = vec3(1.0, 0.95, 0.75);
+        vec3 gold = vec3(1.0, 0.72, 0.25);
+        vec3 orange = vec3(1.0, 0.42, 0.12);
+        vec3 rose = vec3(0.95, 0.25, 0.35);
+        float h = clamp(vHeat, 0.0, 1.0);
+        vec3 col = h > 0.66 ? mix(gold, hot, (h - 0.66) / 0.34) : (h > 0.33 ? mix(orange, gold, (h - 0.33) / 0.33) : mix(rose, orange, h / 0.33));
+        gl_FragColor = vec4(col, a);
+      }`,
+  });
+  return fireVfxMat;
+}
+
+function fireVfxGeometry() {
+  const total = FIRE_FLAMES + FIRE_CORE + FIRE_EMBERS;
+  const corners = [-1, -1, 1, -1, 1, 1, -1, 1];
+  const pos = new Float32Array(total * 4 * 3); // centre is computed in the shader
+  const corner = new Float32Array(total * 4 * 2);
+  const seed = new Float32Array(total * 4 * 4);
+  const index: number[] = [];
+  for (let i = 0; i < total; i++) {
+    const kind = i < FIRE_FLAMES ? 0 : i < FIRE_FLAMES + FIRE_CORE ? 1 : 2;
+    const k = kind === 0 ? i : kind === 1 ? i - FIRE_FLAMES : i - FIRE_FLAMES - FIRE_CORE;
+    const n = kind === 0 ? FIRE_FLAMES : kind === 1 ? FIRE_CORE : FIRE_EMBERS;
+    const phase = (k / n + ((k * 0.618) % 1) * 0.37) % 1;
+    const angle = k * 2.39996;
+    const radius = kind === 0 ? 0.025 + ((k * 37) % 10) / 10 * 0.035 : 0.03 + ((k * 13) % 10) / 10 * 0.03;
+    for (let v = 0; v < 4; v++) {
+      corner.set([corners[v * 2], corners[v * 2 + 1]], (i * 4 + v) * 2);
+      seed.set([phase, angle, radius, kind], (i * 4 + v) * 4);
+    }
+    const b = i * 4;
+    index.push(b, b + 1, b + 2, b, b + 2, b + 3);
   }
-  part(cam, rbox(0.17, 0.07, 0.004, 0.002), lilac, [0, -0.012, 0.081]);
-  part(cam, rbox(0.174, 0.074, 0.003, 0.002), m.gold, [0, -0.012, 0.0805]);
-  // large flat top tray on four short gold posts, lavender velvet inset
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) part(cam, new THREE.CylinderGeometry(0.006, 0.006, 0.014, 8), m.gold, [sx * 0.1, 0.056, sz * 0.06]);
-  part(cam, rbox(0.27, 0.01, 0.19, 0.004), ivory, [0, 0.066, 0]);
-  part(cam, rbox(0.236, 0.004, 0.156, 0.002), m.velvet, [0, 0.0715, 0]);
-  for (const sz of [-1, 1]) part(cam, rbox(0.27, 0.008, 0.008, 0.003), m.gold, [0, 0.074, sz * 0.091]);
-  for (const sx of [-1, 1]) part(cam, rbox(0.008, 0.008, 0.19, 0.003), m.gold, [sx * 0.131, 0.074, 0]);
-  // crystal finial with a little lavender bow on the back edge of the tray
-  part(cam, new THREE.OctahedronGeometry(0.02, 0), m.crystal, [0, 0.1, 0.082], [0, 0, 0], [0.8, 1.3, 0.8]);
-  for (const sx of [-1, 1]) part(cam, new THREE.TorusGeometry(0.011, 0.0035, 5, 12), lilac, [sx * 0.014, 0.082, 0.086], [0, 0, sx * 0.5], [1.3, 0.8, 1]);
-  // front crystal lens: gold bezel, faceted crystal, four crystal studs
-  part(cam, zcyl(0.046, 0.048, 0.012, 24), m.gold, [0, 0.0, -0.084]);
-  part(cam, new THREE.TorusGeometry(0.041, 0.006, 6, 24), m.gold, [0, 0.0, -0.091]);
-  part(cam, new THREE.IcosahedronGeometry(0.036, 0), m.crystal, [0, 0.0, -0.09], [0, 0, 0], [1, 1, 0.45]);
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    part(cam, new THREE.OctahedronGeometry(0.008, 0), m.crystal, [Math.cos(a) * 0.055, Math.sin(a) * 0.055, -0.084]);
-  }
-  // capture button (front right): gold rim, lavender-blue cap, gold star
-  part(cam, zcyl(0.017, 0.017, 0.008, 18), m.gold, [0.088, 0.018, -0.083]);
-  part(cam, zcyl(0.013, 0.013, 0.006, 18), m.buttonBlue, [0.088, 0.018, -0.088]);
-  part(cam, new THREE.OctahedronGeometry(0.006, 0), m.gold, [0.088, 0.018, -0.092], [0, 0, Math.PI / 4], [1, 1, 0.3]);
-  // portrait-card output slot under the lens (empty: the card only appears
-  // when a capture succeeds)
-  part(cam, rbox(0.13, 0.024, 0.004, 0.002), m.gold, [0, -0.05, -0.0815]);
-  part(cam, rbox(0.11, 0.01, 0.004, 0.002), m.slot, [0, -0.05, -0.0835]);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("aCorner", new THREE.BufferAttribute(corner, 2));
+  g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 4));
+  g.setIndex(index);
+  // bounds for culling: the flame and embers stay inside this sphere
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.05, 0), 0.32);
+  return g;
 }
 
 function dressFire(fire: THREE.Object3D) {
-  const m = mats();
   strip(fire);
-  // Deliberately minimal for Quest: two low-poly unlit spheres (outer flame +
-  // bright core). No lit/emissive shell, no additive halo sprite near the face.
-  part(fire, new THREE.IcosahedronGeometry(0.1, 1), m.flameOuterFlat, [0, 0, 0], [0, 0, 0], [1, 1.25, 1]);
-  part(fire, new THREE.IcosahedronGeometry(0.055, 1), m.flameCore, [0, -0.01, 0]);
+  const vfx = new THREE.Mesh(fireVfxGeometry(), fireVfxMaterial());
+  vfx.name = "fire-vfx"; // not merged: keeps its particle attributes
+  vfx.renderOrder = 3; // after the opaque room, so the glow adds on top
+  vfx.raycast = () => {}; // grabbing uses the tool collider, not this mesh
+  fire.add(vfx);
 }
 
 // ── Freestanding sword rack ─────────────────────────────────────────────────
@@ -351,7 +470,7 @@ function dressFire(fire: THREE.Object3D) {
 /** Bake a sword built along -Z (pommel at the origin) into `rack`, hanging
  *  blade-down at rack-local (x, y, z). Parts stay "prop-detail" so
  *  mergeDetails folds them into the rack's per-material meshes. */
-function hangInRack(rack: THREE.Object3D, build: (g: THREE.Group) => void, x: number, y: number, z: number) {
+function hangInRack(rack: THREE.Object3D, build: (g: THREE.Object3D) => void, x: number, y: number, z: number) {
   const g = new THREE.Group();
   build(g);
   const place = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, -1, 0)), new THREE.Vector3(1, 1, 1));
@@ -366,39 +485,134 @@ function hangInRack(rack: THREE.Object3D, build: (g: THREE.Group) => void, x: nu
   }
 }
 
-/** Display swords (not grabbable, part of the rack): three silhouettes that
- *  read differently from the grabbable decoy in the middle slot. */
-const DISPLAY_SWORDS: Array<(g: THREE.Group) => void> = [
-  // slender lavender long sword: curled quillons, pink-gem pommel
+/** A blade like bladeGeometry, bent sideways along its length (scimitar). */
+function curvedBladeGeometry(len: number, width: number, thick: number, bend: number) {
+  const g = bladeGeometry(len, width, thick);
+  const p = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const t = Math.max(0, -p.getZ(i)) / len; // 0 at the guard, 1 at the tip
+    p.setX(i, p.getX(i) + bend * t * t);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A flat outline (x, y) extruded `depth` thick and laid in the sword's
+ *  X / Z plane (shape +Y points toward the pommel, +Z), thickness along Y. */
+function flatShape(shape: THREE.Shape, depth: number) {
+  const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: depth * 0.3, bevelSize: depth * 0.3, bevelSegments: 1, curveSegments: 10 });
+  g.translate(0, 0, -depth / 2);
+  g.rotateX(Math.PI / 2); // shape +Y -> +Z, extrusion -> Y
+  return g;
+}
+
+function heartShape(s: number) {
+  // point toward the blade (-Y in shape space = -Z on the sword)
+  const h = new THREE.Shape();
+  h.moveTo(0, -s);
+  h.bezierCurveTo(s * 0.4, -s * 0.55, s * 1.05, -s * 0.15, s * 0.95, s * 0.35);
+  h.bezierCurveTo(s * 0.85, s * 0.85, s * 0.2, s * 0.9, 0, s * 0.45);
+  h.bezierCurveTo(-s * 0.2, s * 0.9, -s * 0.85, s * 0.85, -s * 0.95, s * 0.35);
+  h.bezierCurveTo(-s * 1.05, -s * 0.15, -s * 0.4, -s * 0.55, 0, -s);
+  const hole = new THREE.Path();
+  hole.absellipse(0, s * 0.05, s * 0.38, s * 0.3, 0, Math.PI * 2, false, 0);
+  h.holes.push(hole);
+  return h;
+}
+
+function starShape(r: number) {
+  const st = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const a = Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 ? r * 0.45 : r;
+    if (i) st.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    else st.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  return st;
+}
+
+/** Wrapped grip: core + raised wraps, from z0 (guard side) to z1 (pommel side). */
+function wrappedGrip(g: THREE.Object3D, core: THREE.Material, wrap: THREE.Material, r: number, z0 = -0.12, z1 = 0.02) {
+  const len = z1 - z0;
+  part(g, zcyl(r, r * 1.08, len, 14), core, [0, 0, (z0 + z1) / 2]);
+  const n = Math.round(len / 0.022);
+  for (let i = 0; i < n; i++) part(g, new THREE.TorusGeometry(r + 0.0012, 0.0028, 5, 14), wrap, [0, 0, z0 + 0.012 + i * 0.022], [0, 0.35, 0]);
+}
+
+/** The five swords of the rack, built along -Z with the pommel at the origin
+ *  (same frame as the grabbable sword: guard at z -0.14, blade from -0.15).
+ *  Index 0 is the grabbable decoy; 1-4 stand in the display slots. Blades
+ *  stay <= 0.52 m so every tip rests in its slot. */
+const SWORD_DESIGNS: Array<(g: THREE.Object3D) => void> = [
+  // 1. slender long sword: curled gold quillons, pink wrapped grip, pink gem pommel
   (g) => {
     const m = mats();
-    part(g, bladeGeometry(0.5, 0.036, 0.004), m.steel, [0, 0, -0.15]);
-    part(g, rbox(0.15, 0.022, 0.03, 0.01), m.gold, [0, 0, -0.14]);
-    for (const sx of [-1, 1]) part(g, new THREE.TorusGeometry(0.022, 0.006, 6, 14, Math.PI * 1.3), m.gold, [sx * 0.085, 0, -0.125], [Math.PI / 2, 0, sx > 0 ? 0.4 : Math.PI - 0.4]);
-    part(g, zcyl(0.014, 0.016, 0.13, 12), m.velvet, [0, 0, -0.055]);
-    part(g, new THREE.OctahedronGeometry(0.022, 0), m.pinkGem, [0, 0, 0.03], [0, 0, 0], [1, 1.3, 1]);
+    part(g, bladeGeometry(0.49, 0.044, 0.004), m.steel, [0, 0, -0.15]);
+    part(g, rbox(0.008, 0.0105, 0.32, 0.003), m.gold, [0, 0, -0.33]); // gilded fuller
+    part(g, rbox(0.12, 0.024, 0.032, 0.01), m.gold, [0, 0, -0.14]);
+    for (const sx of [-1, 1]) {
+      part(g, new THREE.TorusGeometry(0.026, 0.007, 6, 16, Math.PI * 1.35), m.gold, [sx * 0.072, 0, -0.128], [Math.PI / 2, 0, sx > 0 ? 0.5 : Math.PI - 0.5]);
+      part(g, new THREE.SphereGeometry(0.009, 8, 6), m.gold, [sx * 0.098, 0, -0.112]);
+    }
+    part(g, new THREE.OctahedronGeometry(0.013, 0), m.crystal, [0, 0.016, -0.14], [0, 0, 0], [1, 0.6, 1.3]);
+    wrappedGrip(g, m.pinkGrip, m.gold, 0.015);
+    part(g, zcyl(0.02, 0.016, 0.014, 14), m.gold, [0, 0, 0.026]);
+    part(g, new THREE.OctahedronGeometry(0.024, 0), m.pinkGem, [0, 0, 0.055], [0, 0, 0], [1, 0.8, 1.35]);
   },
-  // broad sword: wide blade, straight bar guard, ivory grip, blue gem
+  // 2. broad sword: wide blade, straight bar guard with diamond ends, ivory grip, blue gem
   (g) => {
     const m = mats();
-    part(g, bladeGeometry(0.46, 0.068, 0.005), m.steelDark, [0, 0, -0.15]);
-    part(g, rbox(0.012, 0.012, 0.3, 0.004), m.steel, [0, 0, -0.32]);
-    part(g, rbox(0.22, 0.03, 0.036, 0.012), m.gold, [0, 0, -0.14]);
-    part(g, zcyl(0.019, 0.019, 0.12, 12), mat("ivory"), [0, 0, -0.06]);
-    part(g, new THREE.SphereGeometry(0.03, 14, 10), m.gold, [0, 0, 0.015]);
-    part(g, new THREE.OctahedronGeometry(0.016, 0), m.gem, [0, 0, 0.04]);
+    part(g, bladeGeometry(0.46, 0.066, 0.005), m.steel, [0, 0, -0.15]);
+    part(g, rbox(0.012, 0.012, 0.3, 0.004), m.steelDark, [0, 0, -0.32]);
+    part(g, rbox(0.21, 0.028, 0.034, 0.012), m.gold, [0, 0, -0.14]);
+    for (const sx of [-1, 1]) part(g, new THREE.OctahedronGeometry(0.02, 0), m.gold, [sx * 0.112, 0, -0.14], [0, 0, 0], [1, 0.7, 1]);
+    part(g, new THREE.OctahedronGeometry(0.016, 0), m.gem, [0, 0.018, -0.14], [0, 0, 0], [1, 0.5, 1.3]);
+    wrappedGrip(g, mat("ivory"), m.gold, 0.018);
+    part(g, new THREE.SphereGeometry(0.028, 14, 10), m.gold, [0, 0, 0.04]);
+    part(g, new THREE.OctahedronGeometry(0.02, 0), m.gem, [0, 0, 0.07], [0, 0, 0], [1, 0.8, 1.4]);
   },
-  // rapier: thin blade, round gold hand-guard ring, crystal pommel
+  // 3. rapier: thin blade, round gold hand-guard ring and knuckle bow, crystal pommel
   (g) => {
     const m = mats();
-    part(g, bladeGeometry(0.54, 0.024, 0.003), m.steel, [0, 0, -0.15]);
+    part(g, bladeGeometry(0.52, 0.024, 0.003), m.steel, [0, 0, -0.15]);
     part(g, new THREE.TorusGeometry(0.05, 0.006, 6, 24), m.gold, [0, 0, -0.14]);
-    part(g, new THREE.TorusGeometry(0.035, 0.005, 6, 18, Math.PI), m.gold, [0, 0.02, -0.08], [0, Math.PI / 2, 0]);
-    part(g, rbox(0.12, 0.016, 0.022, 0.007), m.gold, [0, 0, -0.14]);
-    part(g, zcyl(0.012, 0.014, 0.12, 12), m.leather, [0, 0, -0.07]);
-    part(g, new THREE.OctahedronGeometry(0.02, 0), m.crystal, [0, 0, 0.0], [0, 0, 0], [1, 1, 1.4]);
+    part(g, new THREE.TorusGeometry(0.05, 0.004, 6, 24), m.gold, [0, 0, -0.14], [Math.PI / 2, 0, 0]);
+    part(g, new THREE.TorusGeometry(0.075, 0.005, 6, 18, Math.PI), m.gold, [0.0, 0.0, -0.06], [0, Math.PI / 2, Math.PI / 2]);
+    part(g, rbox(0.11, 0.016, 0.022, 0.007), m.gold, [0, 0, -0.14]);
+    wrappedGrip(g, m.violetGrip, m.gold, 0.012);
+    part(g, new THREE.OctahedronGeometry(0.022, 0), m.crystal, [0, 0, 0.045], [0, 0, 0], [1, 1, 1.5]);
+  },
+  // 4. curved sabre: lavender-tinted curved blade, S-guard, violet grip, lavender ribbon
+  (g) => {
+    const m = mats();
+    part(g, curvedBladeGeometry(0.47, 0.05, 0.005, 0.07), m.lilacSteel, [0, 0, -0.15]);
+    part(g, rbox(0.1, 0.022, 0.03, 0.01), m.gold, [0, 0, -0.14]);
+    part(g, new THREE.TorusGeometry(0.03, 0.006, 6, 16, Math.PI * 1.2), m.gold, [0.05, 0, -0.12], [Math.PI / 2, 0, 0.3]);
+    part(g, new THREE.TorusGeometry(0.03, 0.006, 6, 16, Math.PI * 1.2), m.gold, [-0.05, 0, -0.16], [Math.PI / 2, 0, Math.PI + 0.3]);
+    wrappedGrip(g, m.violetGrip, m.lilacPaint, 0.015);
+    part(g, zcyl(0.018, 0.02, 0.02, 14), m.gold, [0, 0, 0.032], [0, 0, 0]);
+    part(g, new THREE.SphereGeometry(0.016, 10, 8), m.gold, [0.012, 0, 0.05]);
+    // ribbon: a bow knot on the grip and two tails
+    part(g, new THREE.TorusGeometry(0.018, 0.006, 5, 12), m.ribbon, [0.022, 0.0, -0.02], [0, Math.PI / 2, 0], [1, 1.4, 0.6]);
+    part(g, new THREE.TorusGeometry(0.018, 0.006, 5, 12), m.ribbon, [-0.022, 0.0, -0.02], [0, Math.PI / 2, 0], [1, 1.4, 0.6]);
+    part(g, rbox(0.022, 0.004, 0.11, 0.002), m.ribbon, [0.03, 0.006, -0.085], [0, 0.25, 0]);
+    part(g, rbox(0.022, 0.004, 0.09, 0.002), m.ribbon, [0.05, -0.006, -0.075], [0, 0.55, 0]);
+  },
+  // 5. heart sword: rose-gold blade, heart guard, pink grip, gold star pommel
+  (g) => {
+    const m = mats();
+    part(g, bladeGeometry(0.44, 0.04, 0.004), m.roseGold, [0, 0, -0.15]);
+    part(g, rbox(0.008, 0.0105, 0.26, 0.003), m.gold, [0, 0, -0.3]);
+    part(g, flatShape(heartShape(0.04), 0.012), m.roseGold, [0, 0, -0.13]);
+    part(g, new THREE.OctahedronGeometry(0.012, 0), m.pinkGem, [0, 0.012, -0.128], [0, 0, 0], [1, 0.6, 1.2]);
+    wrappedGrip(g, m.pinkGrip, m.roseGold, 0.014, -0.11, 0.015);
+    part(g, zcyl(0.017, 0.014, 0.012, 14), m.gold, [0, 0, 0.02]);
+    part(g, flatShape(starShape(0.03), 0.01), m.gold, [0, 0, 0.05]);
   },
 ];
+
+/** The grabbable decoy wears design 1; the display slots wear 2-5. */
+const DISPLAY_SWORDS = SWORD_DESIGNS.slice(1);
 
 function dressRack(rack: THREE.Object3D) {
   const m = mats();
@@ -437,7 +651,7 @@ function dressRack(rack: THREE.Object3D) {
   part(rack, rbox(0.13, 0.15, 0.025, 0.04), m.lilacPaint, [0, top + 0.1, -0.09]);
   part(rack, rbox(0.14, 0.16, 0.018, 0.045), m.gold, [0, top + 0.1, -0.095]);
   part(rack, new THREE.OctahedronGeometry(0.035, 0), m.gold, [0, top + 0.1, -0.072], [0, 0, Math.PI / 4], [1, 1, 0.35]);
-  // three display swords in the side slots
+  // four display swords (designs 2-5) in the other slots
   L.rackSlots.decor.forEach((x, i) => hangInRack(rack, DISPLAY_SWORDS[i % DISPLAY_SWORDS.length], x, H.swordPommel, 0.02));
   // soft contact shadow
   part(rack, new THREE.PlaneGeometry(L.rack.width + 0.3, 0.6), mat("shadow"), [0, 0.014, 0], [-Math.PI / 2, 0, 0]);
@@ -513,6 +727,8 @@ export function dressProps(unity: UnityRoom) {
     if (o) mergeDetails(o);
   }
   if (unity.rescue.glass) mergeDetails(unity.rescue.glass);
+  // Silence crystal guidance (mute symbol, notes, cracks, hammer plaque + hint).
+  dressCurse(unity);
 }
 
 function dressAll(unity: UnityRoom) {

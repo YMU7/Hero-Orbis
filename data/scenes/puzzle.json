@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "savedAt": "2026-11-15T07:53:59.381Z",
+  "savedAt": "2026-11-15T09:04:17.999Z",
   "objects": [
     {
       "id": "painting",
@@ -31,13 +31,13 @@
       "name": "Easel + canvas",
       "asset": "builtin:easel",
       "position": [
-        1.7752,
+        2.219,
         0,
-        0.3075
+        1.034
       ],
       "rotation": [
         0,
-        -81.47,
+        -81,
         0
       ],
       "scale": [
@@ -60,9 +60,9 @@
       "name": "Gramophone",
       "asset": "builtin:gramophone",
       "position": [
-        -2.06,
+        -2.575,
         0.8,
-        0.63
+        1.438
       ],
       "rotation": [
         0,
@@ -89,9 +89,9 @@
       "name": "Button pedestal",
       "asset": "builtin:pedestal",
       "position": [
-        1.7287,
+        2.161,
         0,
-        1.0966
+        2.021
       ],
       "rotation": [
         0,
@@ -109,9 +109,9 @@
       "name": "Wall lantern L",
       "asset": "builtin:wall-lantern",
       "position": [
-        -1.704,
+        -2.13,
         1.85,
-        -2.489
+        -2.461
       ],
       "rotation": [
         0,
@@ -129,9 +129,9 @@
       "name": "Wall lantern R",
       "asset": "builtin:wall-lantern",
       "position": [
-        1.704,
+        2.13,
         1.85,
-        -2.489
+        -2.461
       ],
       "rotation": [
         0,
@@ -149,9 +149,9 @@
       "name": "Arched window front-left",
       "asset": "builtin:arched-window",
       "position": [
-        -2.275,
+        -2.844,
         0,
-        -2.075
+        -1.944
       ],
       "rotation": [
         0,
@@ -159,7 +159,7 @@
         0
       ],
       "scale": [
-        0.85,
+        1,
         1,
         1
       ]
@@ -169,9 +169,9 @@
       "name": "Curtains front-left",
       "asset": "builtin:curtains",
       "position": [
-        -2.275,
+        -2.844,
         0,
-        -2.075
+        -1.944
       ],
       "rotation": [
         0,
@@ -179,7 +179,7 @@
         0
       ],
       "scale": [
-        0.66,
+        0.84,
         1,
         1
       ]
@@ -189,9 +189,9 @@
       "name": "Arched window front-right",
       "asset": "builtin:arched-window",
       "position": [
-        2.275,
+        2.844,
         0,
-        -2.075
+        -1.944
       ],
       "rotation": [
         0,
@@ -199,7 +199,7 @@
         0
       ],
       "scale": [
-        0.85,
+        1,
         1,
         1
       ]
@@ -209,9 +209,9 @@
       "name": "Curtains front-right",
       "asset": "builtin:curtains",
       "position": [
-        2.275,
+        2.844,
         0,
-        -2.075
+        -1.944
       ],
       "rotation": [
         0,
@@ -219,7 +219,7 @@
         0
       ],
       "scale": [
-        0.66,
+        0.84,
         1,
         1
       ]
@@ -229,9 +229,9 @@
       "name": "Arched window back-left",
       "asset": "builtin:arched-window",
       "position": [
-        -2.275,
+        -2.844,
         0,
-        2.475
+        3.744
       ],
       "rotation": [
         0,
@@ -239,7 +239,7 @@
         0
       ],
       "scale": [
-        0.85,
+        1,
         1,
         1
       ]
@@ -249,9 +249,9 @@
       "name": "Curtains back-left",
       "asset": "builtin:curtains",
       "position": [
-        -2.275,
+        -2.844,
         0,
-        2.475
+        3.744
       ],
       "rotation": [
         0,
@@ -259,7 +259,7 @@
         0
       ],
       "scale": [
-        0.66,
+        0.84,
         1,
         1
       ]
@@ -269,9 +269,9 @@
       "name": "Arched window back-right",
       "asset": "builtin:arched-window",
       "position": [
-        2.275,
+        2.844,
         0,
-        2.475
+        3.744
       ],
       "rotation": [
         0,
@@ -279,7 +279,7 @@
         0
       ],
       "scale": [
-        0.85,
+        1,
         1,
         1
       ]
@@ -289,9 +289,9 @@
       "name": "Curtains back-right",
       "asset": "builtin:curtains",
       "position": [
-        2.275,
+        2.844,
         0,
-        2.475
+        3.744
       ],
       "rotation": [
         0,
@@ -299,7 +299,7 @@
         0
       ],
       "scale": [
-        0.66,
+        0.84,
         1,
         1
       ]
@@ -309,9 +309,9 @@
       "name": "Ivy (window FL)",
       "asset": "builtin:ivy",
       "position": [
-        -1.943,
+        -2.511,
         3.1,
-        -2.379
+        -2.248
       ],
       "rotation": [
         0,
@@ -329,9 +329,9 @@
       "name": "Ivy (window FR)",
       "asset": "builtin:ivy",
       "position": [
-        1.943,
+        2.511,
         3.1,
-        -2.379
+        -2.248
       ],
       "rotation": [
         0,
@@ -349,9 +349,9 @@
       "name": "Sun patch (front-left window)",
       "asset": "builtin:sun-patch",
       "position": [
-        -2.275,
+        -2.844,
         0,
-        -2.075
+        -1.944
       ],
       "rotation": [
         0,
@@ -369,9 +369,9 @@
       "name": "Sun patch (back-left window)",
       "asset": "builtin:sun-patch",
       "position": [
-        -2.275,
+        -2.844,
         0,
-        2.475
+        3.744
       ],
       "rotation": [
         0,
@@ -389,9 +389,9 @@
       "name": "Round table (portrait box)",
       "asset": "builtin:round-table",
       "position": [
-        -1.89,
+        -2.362,
         0,
-        -0.96
+        -0.55
       ],
       "rotation": [
         0,
@@ -409,9 +409,9 @@
       "name": "Round table (gramophone)",
       "asset": "builtin:round-table",
       "position": [
-        -2.06,
+        -2.575,
         0,
-        0.63
+        1.438
       ],
       "rotation": [
         0,
@@ -429,9 +429,9 @@
       "name": "Chaise sofa",
       "asset": "builtin:chaise-sofa",
       "position": [
-        -1.907,
+        -2.476,
         0,
-        2.107
+        3.376
       ],
       "rotation": [
         0,
@@ -449,9 +449,9 @@
       "name": "Royal banner L",
       "asset": "builtin:royal-banner",
       "position": [
-        -2.79,
+        -3.49,
         2.85,
-        0.2
+        0.9
       ],
       "rotation": [
         0,
@@ -469,9 +469,9 @@
       "name": "Royal banner R",
       "asset": "builtin:royal-banner",
       "position": [
-        2.79,
+        3.49,
         2.85,
-        0.2
+        0.9
       ],
       "rotation": [
         0,
@@ -489,9 +489,9 @@
       "name": "Potted plant R",
       "asset": "builtin:potted-plant",
       "position": [
-        2.42,
+        3.025,
         0,
-        -0.55
+        -0.037
       ],
       "rotation": [
         0,
@@ -511,7 +511,7 @@
       "position": [
         0,
         0,
-        2.72
+        4.12
       ],
       "rotation": [
         0,
@@ -531,7 +531,7 @@
       "position": [
         -0.32,
         0.87,
-        2.72
+        4.12
       ],
       "rotation": [
         0,
@@ -551,7 +551,7 @@
       "position": [
         0.3,
         0.87,
-        2.72
+        4.12
       ],
       "rotation": [
         0,
@@ -571,7 +571,7 @@
       "position": [
         -0.02,
         0.87,
-        2.75
+        4.15
       ],
       "rotation": [
         0,
@@ -591,7 +591,7 @@
       "position": [
         0,
         2.85,
-        2.99
+        4.39
       ],
       "rotation": [
         0,
@@ -611,7 +611,7 @@
       "position": [
         0,
         0,
-        0.42
+        1.175
       ],
       "rotation": [
         0,
@@ -619,9 +619,9 @@
         0
       ],
       "scale": [
+        1.25,
         1,
-        1,
-        1
+        1.25
       ]
     }
   ]

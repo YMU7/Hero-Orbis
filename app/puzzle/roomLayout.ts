@@ -22,17 +22,26 @@ import { OCTAGON, ROOM, roomWalls } from "./puzzleConfig";
 export type Vec3 = [number, number, number];
 
 /** Default painting placement (world). */
-export const PAINTING_HOME: Vec3 = [0, 1.75, ROOM.minZ + 0.05];
+export const PAINTING_HOME: Vec3 = [0, 1.75, Math.round((ROOM.minZ + 0.05) * 1000) / 1000];
 
 const toPainting = (x: number, y: number, z: number): Vec3 => [x - PAINTING_HOME[0], y - PAINTING_HOME[1], z - PAINTING_HOME[2]];
 const DEG = Math.PI / 180;
 /** Yaw (radians) that turns local −Z toward (tx, tz) from (x, z). */
 const lookYaw = (x: number, z: number, tx: number, tz: number) => Math.atan2(-(tx - x), -(tz - z));
 
+// Positions are authored in the 5.6 m layout-study frame (octagon centre at
+// z = 0.2) and scaled out by ROOM_GROW into the enlarged room. The front
+// (painting) wall is fixed, so grown points keep their place relative to it.
+export const ROOM_GROW = 1.25;
+const STUDY_CZ = 0.2;
+const grow = (x: number, z: number): [number, number] => [
+  Math.round((OCTAGON.cx + (x - OCTAGON.cx) * ROOM_GROW) * 1000) / 1000,
+  Math.round((OCTAGON.cz + (z - STUDY_CZ) * ROOM_GROW) * 1000) / 1000,
+];
 // World anchor points (metres), read off the layout study.
-const KEY_XZ: [number, number] = [-1.5, -1.75]; // hanging key, front-left by the window
-const RACK_XZ: [number, number] = [1.675, -1.475]; // freestanding sword rack, 0.85 m off the front-right window wall
-const BOX_TABLE_XZ: [number, number] = [-1.89, -0.96]; // portrait box table, front-left
+const KEY_XZ = grow(-1.5, -1.75); // hanging key, front-left by the window
+const RACK_XZ = grow(1.675, -1.475); // freestanding sword rack, off the front-right window wall
+const BOX_TABLE_XZ = grow(-1.89, -0.96); // portrait box table, front-left
 const TABLE_TOP = 0.806; // round-table top surface (cloth)
 
 /** Gameplay props, painting-local. Yaws are relative to the painting. */
@@ -41,11 +50,11 @@ export const RESCUE_LAYOUT = {
   rope: toPainting(KEY_XZ[0], 1.9, KEY_XZ[1]),
   glass: toPainting(KEY_XZ[0], 1.13, KEY_XZ[1]),
   /** Freestanding floor rack (origin on the floor, local +Z = front). */
-  rack: { position: toPainting(RACK_XZ[0], 0, RACK_XZ[1]), yaw: -45 * DEG, width: 1.2 },
+  rack: { position: toPainting(RACK_XZ[0], 0, RACK_XZ[1]), yaw: -45 * DEG, width: 1.34 },
   /** Slots along the rack's local X (metres from its centre). The hammer
    *  and the decoy sword are the interactive ones; `decor` swords are part of
    *  the rack model (propModels.dressRack). */
-  rackSlots: { decor: [-0.47, -0.27, 0.19], wallSword: -0.04, hammer: 0.43 },
+  rackSlots: { decor: [-0.33, -0.11, 0.11, 0.33], wallSword: -0.55, hammer: 0.55 },
   /** Heights (rack local): sword pommel and hammer handle end, both hanging
    *  blade/head down so the grab point is at waist height. */
   rackHeights: { swordPommel: 1.02, hammerTop: 0.72, baseTop: 0.36 },
@@ -75,20 +84,24 @@ function onWall(id: string, along: number, out: number, y: number): { position: 
   return { position: [round(w.x + along * c + out * s), y, round(w.z - along * s + out * c)], rotY: Math.round(w.yaw * R2D) };
 }
 const e = (id: string, name: string, kind: string, p: { position: Vec3; rotY: number }, scale?: Vec3): LayoutEntry => ({ id, name, kind, position: p.position, rotY: p.rotY, scale });
-const at = (x: number, y: number, z: number, rotY: number) => ({ position: [x, y, z] as Vec3, rotY: norm(rotY) });
+/** A free-standing piece at a layout-study point (grown into the room). */
+const at = (x: number, y: number, z: number, rotY: number) => {
+  const [gx, gz] = grow(x, z);
+  return { position: [gx, y, gz] as Vec3, rotY: norm(rotY) };
+};
 
-// Diagonal windows are 1.49 m wide: the 1.1 m window and its 2.1 m curtain
-// set are scaled to fit (scale on X only, so the arch keeps its height).
-const WIN_S: Vec3 = [0.85, 1, 1];
-const CURTAIN_S: Vec3 = [0.66, 1, 1];
+// Diagonal walls are 1.86 m wide: the window fits at full size; the 2.1 m
+// curtain set is narrowed on X only, so the arch keeps its height.
+const WIN_S: Vec3 = [1, 1, 1];
+const CURTAIN_S: Vec3 = [0.84, 1, 1];
 
 export const ROOM_LAYOUT: ReadonlyArray<LayoutEntry> = [
   // Singletons (interactive): painting, easel, gramophone, button pedestal.
-  e("painting", "Painting (Orbis)", "painting", at(...PAINTING_HOME, 0)),
+  e("painting", "Painting (Orbis)", "painting", { position: PAINTING_HOME, rotY: 0 }), // fixed: never grown
   // Easel and pedestal: positions as moved in the Scene Editor (2026-11-15 23:44 PT).
-  e("easel", "Easel + canvas", "easel", { position: [1.7752, 0, 0.3075], rotY: -81.47 }),
+  e("easel", "Easel + canvas", "easel", at(1.7752, 0, 0.3075, -81.47)),
   e("gramophone", "Gramophone", "gramophone", at(-2.06, 0.8, 0.63, facing(-2.06, 0.63))),
-  e("pedestal", "Button pedestal", "pedestal", { position: [1.7287, 0, 1.0966], rotY: -137 }),
+  e("pedestal", "Button pedestal", "pedestal", at(1.7287, 0, 1.0966, -137)),
   // Front wall: painting flanked by lanterns on the corner pilasters. No ivy
   // on this wall: its strands hung over the frame and the Orbis picture.
   e("lantern-l", "Wall lantern L", "wall-lantern", at(-1.704, 1.85, -2.489, 22.5)),
@@ -104,7 +117,7 @@ export const ROOM_LAYOUT: ReadonlyArray<LayoutEntry> = [
   e("sun-fl", "Sun patch (front-left window)", "sun-patch", onWall("front-left", 0, 0, 0)),
   e("sun-bl", "Sun patch (back-left window)", "sun-patch", onWall("back-left", 0, 0, 0)),
   // Left side: portrait box table, gramophone table, royal sofa (rear-left).
-  e("table-portrait", "Round table (portrait box)", "round-table", at(BOX_TABLE_XZ[0], 0, BOX_TABLE_XZ[1], 0), [0.8, 1, 0.8]),
+  e("table-portrait", "Round table (portrait box)", "round-table", { position: [BOX_TABLE_XZ[0], 0, BOX_TABLE_XZ[1]], rotY: 0 }, [0.8, 1, 0.8]),
   e("table-gramophone", "Round table (gramophone)", "round-table", at(-2.06, 0, 0.63, 0)),
   e("sofa", "Chaise sofa", "chaise-sofa", onWall("back-left", 0, 0.52, 0)),
   e("banner-l", "Royal banner L", "royal-banner", onWall("left", 0, 0.01, 2.85)),
@@ -118,5 +131,5 @@ export const ROOM_LAYOUT: ReadonlyArray<LayoutEntry> = [
   e("books-dresser", "Book stack", "book-stack", onWall("back", 0.02, 0.25, 0.87)),
   e("banner-b", "Royal banner back", "royal-banner", onWall("back", 0, 0.01, 2.85)),
   // Centre: ornate circular rug, open floor toward the painting.
-  e("rug", "Royal rug", "royal-rug", at(OCTAGON.cx, 0, 0.42, 0)),
+  e("rug", "Royal rug", "royal-rug", at(OCTAGON.cx, 0, 0.42, 0), [ROOM_GROW, 1, ROOM_GROW]),
 ];

@@ -100,13 +100,14 @@ export const BOARD_H = 0.55;
 /** Room: the viewer starts at the origin, 2.6 m from the front wall, so the
  *  painting (on that wall) is ~2.5 m straight ahead. */
 // Octagonal chamber (art pass 2026-11-15, top-down layout study). Walls at
-// 45° steps: four 3.5 m walls (front / left / right / back) joined by four
-// 1.49 m diagonal window walls. 5.6 m across, 3.2 m high. The front wall
-// stays at z = −2.6 so the painting (z = −2.55) and the viewer's start at
-// the origin are exactly where they were in the rectangular room.
+// 45° steps: four 4.375 m walls (front / left / right / back) joined by four
+// 1.86 m diagonal window walls. 7 m across (enlarged 1.25x from the 5.6 m
+// study on request), 3.2 m high. The front wall stays at z = −2.6 so the
+// painting (z = −2.55), the viewer's start at the origin and eye level are
+// unchanged; the room grows to the sides and back.
 //   half   = centre → axial wall (apothem)
 //   corner = half-length of the axial walls (where the diagonals start)
-export const OCTAGON = { cx: 0, cz: 0.2, half: 2.8, corner: 1.75, height: 3.2 } as const;
+export const OCTAGON = { cx: 0, cz: 0.9, half: 3.5, corner: 2.1875, height: 3.2 } as const;
 
 /** Bounding box of the octagon (used by AO, the baked environment, the rope). */
 export const ROOM = {
