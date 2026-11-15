@@ -47,7 +47,7 @@ export class UnityRoom {
   private readonly previousHead = new THREE.Vector3();
   private hasHead = false;
 
-  constructor(readonly physics: ToolPhysics, painting: THREE.Group, private board: DrawingBoard, private onSound: (on: boolean) => void, onBeat: (beat: RescueBeat) => void = () => {}) {
+  constructor(readonly physics: ToolPhysics, painting: THREE.Group, private board: DrawingBoard, private onSound: (on: boolean) => void, onBeat: (beat: RescueBeat) => void | Promise<void> = () => {}) {
     const hammer = new THREE.Group(); hammer.name = "hammer";
     box(hammer, [0.035, 0.035, 0.32], [0, 0, -0.12], mat(0x8a5520));
     box(hammer, [0.20, 0.10, 0.10], [0, 0, -0.31], mat(0xaab5c2, 0.8));
@@ -67,11 +67,14 @@ export class UnityRoom {
     blade.quaternion.copy(hammer.quaternion);
     this.group.add(blade);
     this.wallSword = physics.add(blade, new THREE.Vector3(0.11, 0.025, 0.32), new THREE.Vector3(0, 0, -0.25));
+    this.wallSword.setGrabSegment(new THREE.Vector3(0,0,.04),new THREE.Vector3(0,0,-.64));
     const reward = sword(true);
     reward.position.copy(board.boardToWorld({ x: 0, y: 0 }, 0.25));
     reward.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0));
     this.group.add(reward);
     this.reward = physics.add(reward, new THREE.Vector3(0.11, 0.025, 0.45), new THREE.Vector3(0, 0, -0.4));
+    this.reward.setGrabSegment(new THREE.Vector3(0,0,.04),new THREE.Vector3(0,0,-.86));
+    this.reward.resetOnGround = false;
     reward.visible = false; this.reward.body.setEnabled(false);
     this.mute.position.copy(painting.localToWorld(new THREE.Vector3(0, -0.82, 0.12)));
     this.mute.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion()));
@@ -92,7 +95,7 @@ export class UnityRoom {
   }
   tryGrab(g: Grabber, ray: THREE.Ray | null) {
     if (this.rescue.camera.holder && g !== this.rescue.camera.holder && g.point.distanceTo(this.rescue.camera.object.position)<.25) return this.rescue.shoot();
-    return [this.hammer, this.wallSword, this.reward, this.rescue.camera, this.rescue.fire, this.rescue.key, this.rescue.photo].filter(t => this.rescue.canGrab(t)).sort((a, b) => a.object.position.distanceToSquared(g.point) - b.object.position.distanceToSquared(g.point)).some((t) => t.tryGrab(g, ray));
+    return [this.hammer, this.wallSword, this.reward, this.rescue.camera, this.rescue.fire, this.rescue.key, this.rescue.photo].filter(t => this.rescue.canGrab(t)).sort((a, b) => a.distanceToGrab(g.point) - b.distanceToGrab(g.point)).some((t) => t.tryGrab(g, ray));
   }
   /** Desktop follows the same hammer contact path; never accepts another tool. */
   desktopStrike() {

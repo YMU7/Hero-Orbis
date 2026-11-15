@@ -12,6 +12,7 @@ import { RoomMovement } from "../lib/roomMovement";
 import { DrawingBoard } from "../lib/drawingBoard";
 import { HandInput, type Grabber } from "../lib/handInput";
 import { Crayon, type DrawMode } from "../lib/crayon";
+import { Eraser } from "../lib/eraser";
 import { Gramophone } from "../lib/gramophone";
 import { roomAudio } from "../lib/roomAudio";
 import {
@@ -41,7 +42,7 @@ import type { Stroke } from "../lib/swordRecognizer";
 // the desktop Scene Editor (/editor?scene=puzzle). Every piece is built by
 // app/puzzle/lib/roomParts.ts at its own origin and placed by its transform:
 //   painting   : gold-framed painting = the live Orbis stream (+ hint, HUD)
-//   easel      : wooden A-frame easel with a canvas + crayon on the ledge
+//   easel      : wooden A-frame easel with mounted pen and eraser
 //   gramophone : puzzle 1 (on a side table)
 //   pedestal   : RESET / CLEAR poke buttons
 //   decor      : rug, canopy bed, night window, sconces, banners, tables, GLBs
@@ -61,7 +62,7 @@ export type RoomApi = {
 };
 
 export type PuzzleSceneProps = {
-  onBeat: (beat: RescueBeat) => void;
+  onBeat: (beat: RescueBeat) => void | Promise<void>;
   showVideo: boolean;
   video: HTMLVideoElement | null;
   placeholderLines: string[];
@@ -221,8 +222,8 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       if (isTargetPuzzle(o)) addTarget(o.id, g);
     }
     propsRef.current.onLayout(layout);
-    const crayonRest = mount.localToWorld(new THREE.Vector3(0.28, -BOARD_H / 2 + 0.008, 0.06));
-    const crayonRestQ = mount.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0)));
+    const crayonRest = mount.localToWorld(new THREE.Vector3(BOARD_W / 2 + 0.055, 0.08, 0.065));
+    const crayonRestQ = mount.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0)));
 
     const physics = new ToolPhysics();
     const unity = new UnityRoom(physics, painting.group, board, (on) => propsRef.current.onSound(on), (beat) => propsRef.current.onBeat(beat));
@@ -241,6 +242,8 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       physics,
     });
     scene.add(crayon.object);
+    const eraser = new Eraser(physics, mount, board, () => propsRef.current.onButton('clear','eraser on canvas'));
+    scene.add(eraser.object);
     let tonearmHolder: Grabber | null = null;
     // Controller pointer-ray targets (Phase E): RESET / CLEAR / gramophone.
     const rayCaster = new THREE.Raycaster();
@@ -259,6 +262,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       scene: rig,
       onPinchStart: (g) => {
         if (crayon.tryGrab(g, hands.pointerRay(g))) return;
+        if (eraser.tool.tryGrab(g, hands.pointerRay(g))) { hands.pulse(g, 0.3, 35); return; }
         if (unity.tryGrab(g, hands.pointerRay(g))) { hands.pulse(g, 0.5, 45); return; }
         // Controllers only: nothing in reach → use the pointer ray.
         const hit = rayTarget(g);
@@ -466,6 +470,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       if (tonearmHolder?.tracked) gramophone.drag(tonearmHolder.point);
       gramophone.update(dt, t);
       crayon.update(t);
+      eraser.update();
       updateDesktop();
       if(desktopTool?.holder!==desktop)desktopTool=null;
       physics.update(dt);

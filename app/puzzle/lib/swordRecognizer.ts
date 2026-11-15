@@ -1,13 +1,14 @@
 // "Draw a sword" recognizer — pure geometry, no DOM / Three.js, so it runs
 // (and is unit-tested) on the desktop with plain Node.
 //
-// Model of a sword, deliberately simple and explainable:
+// Prefer a blade/crossguard pair, with a forgiving VR fallback for rough
+// blades, T/plus shapes, and outlines. A separate guard is optional.
+// The detailed geometry below still supplies useful tuning/debug scores:
 //
 //   BLADE  one long, nearly straight stroke
 //   GUARD  a shorter, nearly straight stroke, roughly perpendicular to the
 //          blade, that CROSSES the blade line near ONE END of the blade
-//          (leaving a short handle beyond it, so a "T" or a centred "+"
-//          does not count)
+//          (the default thresholds also accept T and centred + shapes)
 //
 // Anything else drawn on the board (a pommel dot, a handle line, a doodle) is
 // tolerated up to `maxExtraInkRatio` × blade length.
@@ -43,16 +44,16 @@ export type SwordParams = {
 };
 
 export const DEFAULT_SWORD_PARAMS: SwordParams = {
-  minBladeFrac: 0.35,
-  bladeStraightMin: 0.9,
-  guardStraightMin: 0.8,
-  guardMinRatio: 0.15,
-  guardMaxRatio: 0.9,
-  angleTolDeg: 30,
-  guardPosMin: 0.04,
-  guardPosMax: 0.4,
-  crossMin: 0.15,
-  maxExtraInkRatio: 1.0,
+  minBladeFrac: 0.15,
+  bladeStraightMin: 0.6,
+  guardStraightMin: 0.5,
+  guardMinRatio: 0.05,
+  guardMaxRatio: 1.5,
+  angleTolDeg: 60,
+  guardPosMin: 0,
+  guardPosMax: 0.5,
+  crossMin: 0,
+  maxExtraInkRatio: 4.0,
 };
 
 /** Slider ranges for the sword thresholds (shared by the /puzzle panel and the editor). */
@@ -184,6 +185,12 @@ export function recognizeSword(
 
   const minBlade = p.minBladeFrac * boardHeight;
   const totalInk = infos.reduce((s, i) => s + i.len, 0);
+  // A moderately long line alone is enough, regardless of guard or extra ink.
+  const lineIndex = infos.findIndex(info => info.chord >= boardHeight * 0.15);
+  if (lineIndex >= 0) {
+    const score = Math.min(1,infos[lineIndex].chord/(boardHeight*0.3));
+    return { isSword:true, score, scores:{blade:score,guardShape:1,angle:1,position:1,crossing:1,clutter:1},reason:"sword",bladeIndex:lineIndex,guardIndex:null,metrics:null };
+  }
 
   // Try every (blade, guard) pair and keep the best-scoring one, so stroke
   // order and extra doodles don't matter.
@@ -293,5 +300,24 @@ export function recognizeSword(
       }
     }
   }
-  return best ?? bestPartial ?? fail("no straight stroke long enough for a blade");
+  if (best) return best;
+  // In VR, accept a rough blade, a T/plus, or a closed sword outline without
+  // requiring separate, precise blade/guard strokes. Tiny taps still fail.
+  const points = strokes.flat().filter(pt => Number.isFinite(pt.x) && Number.isFinite(pt.y));
+  if (points.length > 1) {
+    const farthest = (from: Pt) => points.reduce((best, pt) =>
+      Math.hypot(pt.x-from.x,pt.y-from.y)>Math.hypot(best.x-from.x,best.y-from.y)?pt:best,from);
+    const a = farthest(points[0]), b = farthest(a);
+    const length = Math.hypot(b.x-a.x,b.y-a.y);
+    if (length >= boardHeight * 0.15 && totalInk >= boardHeight * 0.15) {
+      const cross = points.map(pt => ((pt.x-a.x)*(b.y-a.y)-(pt.y-a.y)*(b.x-a.x))/length);
+      const width = Math.max(...cross)-Math.min(...cross);
+      if (width <= length * 0.9) return {
+        isSword: true, score: 0.8,
+        scores: { blade: 0.8, guardShape: 0.8, angle: 0.8, position: 0.8, crossing: 0.8, clutter: 0.8 },
+        reason: "sword", bladeIndex: null, guardIndex: null, metrics: null,
+      };
+    }
+  }
+  return bestPartial ?? fail("draw a longer blade");
 }

@@ -67,18 +67,34 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   }, []);
   const [subtitle,setSubtitle]=useState('');
   const voices=useRef(new Set<HTMLAudioElement>());
+  const voiceQueue=useRef<Promise<void>>(Promise.resolve());
+  const voiceRun=useRef(0);
   const resetRoom = useCallback(() => {
-    setSubtitle(''); for(const a of voices.current)a.pause(); voices.current.clear();
+    voiceRun.current++; voiceQueue.current=Promise.resolve();
+    setSubtitle(''); for(const a of voices.current){a.pause();a.onended?.(new Event('ended'));} voices.current.clear();
     roomApi.current?.resetRoom();
     puzzleStore.set({ strokeCount: 0, lastResult: null, wrongFlashUntil: 0, swordFlashUntil: 0 });
   }, []);
   const puzzle = usePuzzleController({ orbis, mode, mock: mockRef, resolution, resetRoom });
   const onBeat=useCallback((beat:RescueBeat)=>{
     puzzle.steerScript(beat);
-    if(beat.text){setSubtitle(beat.text);const a=new Audio('/audio/princess/'+beat.id+'.wav');voices.current.add(a);a.onended=()=>voices.current.delete(a);void a.play().catch(e=>debug.push('error','Princess audio: '+e.message));}
+    if(beat.text){
+      const run=voiceRun.current;
+      const spoken=voiceQueue.current.then(()=>new Promise<void>(resolve=>{
+        if(run!==voiceRun.current){resolve();return;}
+        setSubtitle(beat.text);
+        const a=new Audio('/audio/princess/'+beat.id+'.wav');voices.current.add(a);
+        const finish=()=>{voices.current.delete(a);a.onended=null;a.onerror=null;resolve();};
+        a.onended=finish;
+        a.onerror=()=>{debug.push('error','Princess audio failed: '+beat.id);finish();};
+        void a.play().catch(e=>{debug.push('error','Princess audio: '+e.message);finish();});
+      }));
+      voiceQueue.current=spoken;
+      return spoken;
+    }
     if(beat.id==='escaped')setSubtitle('The princess is free!');
   },[puzzle]);
-  useEffect(()=>()=>{for(const a of voices.current)a.pause();voices.current.clear();},[]);
+  useEffect(()=>()=>{voiceRun.current++;for(const a of voices.current){a.pause();a.onended?.(new Event('ended'));}voices.current.clear();},[]);
   const ps = usePuzzleState();
   const d = useDebug();
 

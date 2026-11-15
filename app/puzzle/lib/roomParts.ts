@@ -394,6 +394,17 @@ export function buildEasel() {
   const back = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.02, BOARD_H + 0.02, 0.02), new THREE.MeshStandardMaterial({ color: 0xd8cbb0 }));
   back.position.z = -0.012;
   mount.add(back);
+  // A visible pen clip beside the canvas, above the tray and clear of drawing.
+  const penPlate = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.035), dark);
+  penPlate.position.set(BOARD_W / 2 + 0.055, 0.08, 0.025);
+  mount.add(penPlate);
+  const penClip = new THREE.Mesh(new THREE.TorusGeometry(0.014, 0.003, 6, 16), goldMat());
+  penClip.rotation.x = Math.PI / 2;
+  penClip.position.set(BOARD_W / 2 + 0.055, 0.065, 0.065);
+  mount.add(penClip);
+  const eraserPlate = new THREE.Mesh(new THREE.BoxGeometry(.14,.10,.025),dark);
+  eraserPlate.position.set(-BOARD_W/2-.055,.08,.025);
+  mount.add(eraserPlate);
   return { group, mount };
 }
 

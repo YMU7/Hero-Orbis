@@ -45,13 +45,12 @@ export class ToolPhysics {
       this.world.step();
       this.accumulator -= 1 / 90;
     }
-    for (const tool of this.tools) tool.sync();
+    for (const tool of this.tools) { tool.sync(); tool.returnFromFloor(); }
   }
   release(g: Grabber) { for (const t of this.tools) t.release(g); }
   highlight(grabbers: Grabber[]) {
     for (const tool of this.tools) {
-      const p = tool.object.getWorldPosition(new THREE.Vector3());
-      tool.highlight.visible = tool.object.visible && !tool.holder && grabbers.some((g) => g.tracked && !g.pinching && g.point.distanceTo(p) < 0.18);
+      tool.highlight.visible = tool.object.visible && !tool.holder && grabbers.some((g) => g.tracked && !g.pinching && tool.distanceToGrab(g.point) < 0.18);
     }
   }
   reset() { for (const t of this.tools) t.reset(); }
@@ -59,6 +58,8 @@ export class ToolPhysics {
 }
 
 export class PhysicalTool {
+  resetOnGround = true;
+  private grabSegment: THREE.Line3 | null = null;
   readonly body: RAPIER.RigidBody;
   readonly highlight = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.003, 6, 24), new THREE.MeshBasicMaterial({ color: 0xffdf86, depthTest: false }));
   holder: Grabber | null = null;
@@ -66,7 +67,7 @@ export class PhysicalTool {
   private readonly homeQ: THREE.Quaternion;
   private samples: Array<{ t: number; p: THREE.Vector3; q: THREE.Quaternion }> = [];
   private readonly q = new THREE.Quaternion();
-  constructor(private world: RAPIER.World, readonly object: THREE.Object3D, half: THREE.Vector3, offset: THREE.Vector3) {
+  constructor(private world: RAPIER.World, readonly object: THREE.Object3D, private half: THREE.Vector3, private offset: THREE.Vector3) {
     this.home = object.position.clone();
     this.homeQ = object.quaternion.clone();
     this.highlight.name = "grab-highlight"; this.highlight.visible = false;
@@ -74,11 +75,33 @@ export class PhysicalTool {
     this.body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(...this.home.toArray()).setRotation(this.homeQ).setCcdEnabled(true));
     world.createCollider(RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setTranslation(offset.x, offset.y, offset.z).setMass(0.25).setFriction(0.7).setRestitution(0.15), this.body);
   }
+  setGrabSegment(start: THREE.Vector3, end: THREE.Vector3) {
+    this.grabSegment = new THREE.Line3(start.clone(), end.clone());
+  }
+  private worldGrabSegment() {
+    return this.grabSegment && new THREE.Line3(this.object.localToWorld(this.grabSegment.start.clone()), this.object.localToWorld(this.grabSegment.end.clone()));
+  }
+  distanceToGrab(point: THREE.Vector3) {
+    const segment = this.worldGrabSegment();
+    return segment ? segment.closestPointToPoint(point, true, new THREE.Vector3()).distanceTo(point) : this.object.getWorldPosition(new THREE.Vector3()).distanceTo(point);
+  }
+  returnFromFloor() {
+    if (!this.resetOnGround || this.holder || !this.object.visible || !this.body.isDynamic()) return;
+    const q = this.object.quaternion;
+    const center = this.offset.clone().applyQuaternion(q).add(this.object.position);
+    const extent = Math.abs(new THREE.Vector3(1,0,0).applyQuaternion(q).y)*this.half.x
+      + Math.abs(new THREE.Vector3(0,1,0).applyQuaternion(q).y)*this.half.y
+      + Math.abs(new THREE.Vector3(0,0,1).applyQuaternion(q).y)*this.half.z;
+    if (center.y - extent <= 0.035) this.reset();
+  }
   tryGrab(g: Grabber, ray?: THREE.Ray | null) {
     if (this.holder || !this.object.visible || !g.tracked) return false;
     const p = this.object.getWorldPosition(new THREE.Vector3());
-    const near = g.point.distanceTo(p) < 0.13;
-    const remote = g.kind === "controller" && ray && ray.distanceToPoint(p) < 0.09 && ray.direction.dot(p.clone().sub(ray.origin)) > 0 && ray.origin.distanceTo(p) < 4;
+    const near = this.distanceToGrab(g.point) < 0.13;
+    const segment = this.worldGrabSegment();
+    const rayPoint = new THREE.Vector3(), targetPoint = p.clone();
+    const rayDistance = ray && segment ? Math.sqrt(Math.max(0,ray.distanceSqToSegment(segment.start, segment.end, rayPoint, targetPoint))) : ray?.distanceToPoint(p);
+    const remote = g.kind === "controller" && ray && rayDistance !== undefined && rayDistance < 0.09 && ray.direction.dot(targetPoint.clone().sub(ray.origin)) > 0 && ray.origin.distanceTo(targetPoint) < 4;
     if (!near && !remote) return false;
     this.holder = g;
     this.samples = [];
