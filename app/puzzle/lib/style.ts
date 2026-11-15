@@ -66,7 +66,7 @@ export const MIX_CHANNELS: Array<{ key: Exclude<keyof AudioMix, "backgroundBefor
   { key: "voice", label: "Princess voice (Orbis)" },
 ];
 
-export const defaultMix = (): AudioMix => ({ master: 0.9, background: 0.6, objects: 0.8, sfx: 0.8, voice: 1, backgroundBeforeSound: false });
+export const defaultMix = (): AudioMix => ({ master: 0.9, background: 0.6, objects: 0.8, sfx: 0.8, voice: 0, backgroundBeforeSound: false });
 
 export function parseMix(raw: unknown): AudioMix {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;

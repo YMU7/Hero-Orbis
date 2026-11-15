@@ -1,0 +1,52 @@
+[
+  {
+    "id": "silence",
+    "cue": "The princess is alone in a room with a locked door. She seems to be trying to talk.",
+    "text": ""
+  },
+  {
+    "id": "unmuted",
+    "cue": "The princess jumps for joy.",
+    "text": "Thank you hero! When I found out I would be voiceless until someone broke the silence, I didn't think that this is what they meant. I was trapped here by an evil witch when I criticized her artwork. To be fair it was really awful. Anyways, time to rescue me. Draw your sword!"
+  },
+  {
+    "id": "melted",
+    "cue": "The princess frowns.",
+    "text": "Hmm, I know the hero is supposed to draw a sword to save me. But that doesn't seem to be working. What else could you try?"
+  },
+  {
+    "id": "drawn",
+    "cue": "The princess laughs.",
+    "text": "Well that wasn't what I had in mind but it worked! Now we need to get the key out of that box. You can probably smash it on the floor."
+  },
+  {
+    "id": "rope",
+    "cue": "The princess looks thoughtful, considering how to free the key.",
+    "text": "Oh yeah I forgot, that is special sword-proof rope. Can't cut it. I wonder if this will work... we need something to catch fire!"
+  },
+  {
+    "id": "fire",
+    "cue": "",
+    "text": "Wow that actually worked. I like this game."
+  },
+  {
+    "id": "key",
+    "cue": "The princess claps with delight.",
+    "text": "Okay, now get that key into the picture."
+  },
+  {
+    "id": "rejected",
+    "cue": "The princess frowns.",
+    "text": "I was worried about that. But we need that key in the picture."
+  },
+  {
+    "id": "photo",
+    "cue": "",
+    "text": "Excellent."
+  },
+  {
+    "id": "escaped",
+    "cue": "The princess bends down and picks up a key, uses it to open the locked door, and walks outside the castle.",
+    "text": ""
+  }
+]

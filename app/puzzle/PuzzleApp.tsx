@@ -8,6 +8,7 @@ import { createMockSource, type MockSource } from "../mvp/lib/mockSource";
 import { debug, useDebug, type SourceMode } from "../mvp/lib/debugState";
 import { installQuestEmulatorIfRequested } from "../mvp/lib/xrEmulation";
 import type { VideoHealth } from "../mvp/lib/videoTextureHealth";
+import type { RescueBeat } from './lib/rescueScript';
 import { BOARD_H, PUZZLE_RESOLUTION, WRONG_HINT_IDLE_MS } from "./puzzleConfig";
 import { mockLabel, usePuzzleController } from "./lib/usePuzzleController";
 import { puzzleStore, usePuzzleState } from "./lib/puzzleState";
@@ -64,11 +65,20 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     roomApi.current?.clearBoard();
     puzzleStore.set({ strokeCount: 0, lastResult: null, wrongFlashUntil: 0, swordFlashUntil: 0 });
   }, []);
+  const [subtitle,setSubtitle]=useState('');
+  const voices=useRef(new Set<HTMLAudioElement>());
   const resetRoom = useCallback(() => {
+    setSubtitle(''); for(const a of voices.current)a.pause(); voices.current.clear();
     roomApi.current?.resetRoom();
     puzzleStore.set({ strokeCount: 0, lastResult: null, wrongFlashUntil: 0, swordFlashUntil: 0 });
   }, []);
   const puzzle = usePuzzleController({ orbis, mode, mock: mockRef, resolution, resetRoom });
+  const onBeat=useCallback((beat:RescueBeat)=>{
+    puzzle.steerScript(beat);
+    if(beat.text){setSubtitle(beat.text);const a=new Audio('/audio/princess/'+beat.id+'.wav');voices.current.add(a);a.onended=()=>voices.current.delete(a);void a.play().catch(e=>debug.push('error','Princess audio: '+e.message));}
+    if(beat.id==='escaped')setSubtitle('The princess is free!');
+  },[puzzle]);
+  useEffect(()=>()=>{for(const a of voices.current)a.pause();voices.current.clear();},[]);
   const ps = usePuzzleState();
   const d = useDebug();
 
@@ -183,7 +193,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   }, [liveVideo, orbis.track]);
   useEffect(() => (liveVideo ? watchVideo(liveVideo, (st) => debug.set({ live: st })) : undefined), [liveVideo]);
 
-  // ── Audio: generated all along, muted until the gramophone plays ───────
+  // Orbis generation is silent by default; retain playback for optional mixing.
   const audioRef = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
     const a = audioRef.current;
@@ -290,6 +300,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const onLayout = useCallback(
     (layout: SceneObject[]) => {
       const setup = collectPuzzles(layout);
+      setup.puzzles = []; // Rescue script owns progression; editor still supplies room layout.
       const sword = puzzlesWith(setup, "draw-sword")[0];
       puzzleStore.set({ setup, params: swordParamsOf(sword) });
       puzzle.onSetup();
@@ -338,7 +349,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     (on: boolean) => {
       roomAudio.play(on ? "needle-down" : "needle-up");
       puzzleStore.set({ soundOn: on, soundOnAt: on ? Date.now() : puzzleStore.get().soundOnAt });
-      debug.push("info", `[puzzle] gramophone ${on ? "PLAYING — room has sound" : "stopped — silent"}`);
+      debug.push("info", `[puzzle] hammer seal ${on ? "PLAYING — room has sound" : "stopped — silent"}`);
       puzzle.onSound();
       if (on) trigger(puzzlesWith(puzzleStore.get().setup, "needle"), "needle on the record");
     },
@@ -385,7 +396,7 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       : allSolved(ps.setup, ps.solved)
         ? "The princess laughs with joy!"
         : ps.phase === "urging"
-          ? (nextHint(ps.setup, ps.solved) ?? "")
+          ? "Break the silence with the hammer."
           : "Something stirs inside the painting…");
 
   const activeVideo = mode === "live" ? liveVideo : mockVideo;
@@ -394,21 +405,22 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const hudLines = [
     `${mode === "mock" ? "MOCK" : "LIVE"} · ${ps.phase} · run #${ps.run} · chunk ${d.currentChunk ?? "-"} · solved ${ps.solved.length}/${ps.setup.puzzles.length}`,
     `sound ${ps.soundOn ? "ON" : "off"} · strokes ${ps.strokeCount} · ${res ? (res.isSword ? `SWORD ${res.score.toFixed(2)}` : res.reason) : "-"}`,
-    `crayon ${ps.crayonHolder ?? "on ledge"} · ${ps.drawMode} · arm ${ps.tonearmHolder ?? "-"}`,
+    `pen ${ps.crayonHolder ?? "released"} · ${ps.drawMode} · hammer the red seal to hear her`,
     `fps ${vh?.renderFps ?? "-"}  dec ${vh?.decodedFps ?? "-"}  tex ${vh?.texFps ?? "-"}/s${vh?.fallback ? "  FALLBACK" : ""}`,
     d.lastCommandError ? `ERR ${d.lastCommandError}` : ps.lastError ? `ERR ${ps.lastError}` : "no errors",
   ];
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-950 lg:h-screen lg:flex-row lg:overflow-hidden">
-      <main className="relative h-[60vh] flex-1 lg:h-full">
+      <main className="relative h-[60vh] min-h-[420px] shrink-0 lg:min-h-0 lg:flex-1 lg:h-full">
         {xrInitDone && (
           <PuzzleScene
+            onBeat={onBeat}
             showVideo={ps.liveReady}
             video={activeVideo}
             placeholderLines={PLACEHOLDER[ps.phase] ?? [ps.phase, ""]}
             hudLines={hudLines}
-            hintText={hintText}
+            hintText={subtitle || hintText}
             wrongFlashUntil={ps.wrongFlashUntil}
             swordFlashUntil={ps.swordFlashUntil}
             onStrokeEnd={onStrokeEnd}
@@ -437,8 +449,9 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
             roomApi={roomApi}
           />
         )}
+        {subtitle && <div className="pointer-events-none absolute bottom-4 left-4 right-4 rounded bg-black/80 p-3 text-sm text-amber-50">{subtitle}</div>}
         <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-[11px] text-zinc-300">
-          /puzzle · desktop: drag on the easel canvas to draw · click the gramophone · arrow keys look around · VR: pinch to grab, fingertip to press
+          /puzzle · desktop: drag on the easel canvas to draw · click the mute symbol to strike · click tools to carry/drop · Space to shoot camera · WASD move · arrows look · VR: pinch/grip to grab, left stick move, right stick smooth turn
         </div>
       </main>
       <aside className="w-full overflow-y-auto p-3 lg:h-full lg:w-[420px] lg:shrink-0">

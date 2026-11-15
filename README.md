@@ -1,4 +1,39 @@
-# Hero
+# Hero-Orbis
+
+## Current project: princess room + Unity gameplay port
+
+Run this application from the workspace root (not the nested backup clone):
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Open [the game](http://localhost:3000/puzzle?mode=mock). The home page opens the
+puzzle. The original Reactor studio is at `/studio`; `/mvp`, `/rooms`, and the
+scene editor remain available. Mock mode needs no API key.
+
+**Quest headset:** run `pnpm dev:https`, then open
+`https://<your-PC-Wi-Fi-IP>:3000/puzzle?mode=mock` in Meta Quest Browser on the
+same network. Approve the development certificate on your own device and press
+**ENTER VR**. For a trusted HTTPS URL, run `cloudflared tunnel --url http://localhost:3000`
+against `pnpm dev` or `pnpm start`, then open its URL with `/puzzle?mode=mock`.
+On campus Wi-Fi, device isolation can block direct PC-to-headset access; a tunnel
+avoids that network limitation. Live mode uses the existing server-side
+`REACTOR_API_KEY` configuration. Keep public tunnel access protected when using a key.
+
+Left stick moves, right stick turns **smoothly** at up to 90°/s. Pinch near a tool,
+or point a controller and hold grip/trigger to grab. Release to throw. Break the
+red mute seal with the hammer. Follow the princess rescue sequence: try the rack sword, draw a sword on the
+easel, burn the rope, and photograph the key to get it into the painting. Desktop uses
+WASD, arrow keys, mouse drawing, and clicking the mute seal to perform a hammer strike.
+
+Orbis audio generation is disabled for puzzle runs and its mixer channel defaults
+to zero. Recorded princess dialogue and local room sounds remain enabled.
+
+Unity source is archived at `archive/2026-11-14-unity-webxr-port/`.
+See [migration details and verification limits](docs/unity/PORT.md).
+
 
 **Step inside a world that Visko Orbis generates live, and steer it from VR.**
 
@@ -113,7 +148,7 @@ pnpm build
 pnpm start
 ```
 
-Open `http://localhost:3000/mvp`. The Reactor reference app remains available at `/`.
+Open `http://localhost:3000/mvp`. The Reactor reference app remains available at `/studio`.
 
 ### Configuration
 

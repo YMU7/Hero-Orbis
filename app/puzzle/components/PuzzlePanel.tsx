@@ -59,6 +59,7 @@ export function PuzzlePanel(p: {
 
   return (
     <div className="flex flex-col gap-3 text-zinc-200">
+      <p className="rounded-lg border border-amber-900 bg-amber-950/30 p-3 text-sm">Pick up the hammer and break the red mute seal under the painting. Touch the easel with the pen: your first mark releases a royal sword. Draw a sword to delight the princess. Release your grip to throw; pinch near a dropped tool to pick it up again.</p>
       <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-xs uppercase tracking-wider text-zinc-400">Princess in the painting · puzzle test</h2>

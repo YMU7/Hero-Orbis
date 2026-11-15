@@ -12,6 +12,7 @@ import { debug, type SourceMode } from "../../mvp/lib/debugState";
 import { PUZZLE_ACTIONS, PUZZLE_AUDIO_PROMPTS, PUZZLE_INITIAL_IMAGE, PUZZLE_RESOLUTION, PUZZLE_SEED } from "../puzzleConfig";
 import { composePrompt } from "./style";
 import { puzzleStore, type PuzzleStateData } from "./puzzleState";
+import { RESCUE_SCRIPT, type RescueBeat } from './rescueScript';
 import { allSolved, blocker, isUnlocked } from "./puzzleChain";
 
 // Orbis lifecycle for "the princess in the painting" (same patterns as
@@ -38,8 +39,8 @@ import { allSolved, blocker, isUnlocked } from "./puzzleChain";
 //   - generation_complete (a run reached max_chunks) → `start` again with the
 //     same prompt, so the painting never goes dead;
 //   - dropped connections are reconnected by the app (useKeepConnected).
-// Audio is generated all along (model default) and only muted/unmuted
-// locally by the gramophone.
+// Orbis audio generation is disabled before each run. Recorded rescue dialogue
+// and local room sounds provide the puzzle audio.
 
 type Orbis = ReturnType<typeof useOrbisSession>;
 export type SolveOutcome = { ok: true } | { ok: false; reason: string; local?: boolean; hint?: string };
@@ -53,8 +54,8 @@ export function openingOf(s: PuzzleStateData): PuzzleStateData["current"] {
   const o = s.setup.opening;
   return {
     label: "opening",
-    instruction: o.startInstruction.trim() || PUZZLE_ACTIONS.urging,
-    audioPrompt: o.startInstruction.trim() ? o.audioPrompt.trim() : PUZZLE_AUDIO_PROMPTS.urging,
+    instruction: RESCUE_SCRIPT[0].cue,
+    audioPrompt: "Quiet castle room ambience, no speech or music.",
   };
 }
 
@@ -143,6 +144,9 @@ export function usePuzzleController(opts: {
         if (!isCurrent(token)) return log("superseded after reset");
       }
       puzzleStore.set({ phase: "conditioning" });
+      const audio = await cmd(token, "set_audio_enabled(false)", () => c.setAudioEnabled({ audio_enabled: false }), true);
+      if (!audio.ok) return fail("set_audio_enabled(false) refused");
+      if (!isCurrent(token)) return log("superseded while disabling Orbis audio");
       await cmd(token, `set_seed(${PUZZLE_SEED})`, () => c.setSeed({ seed: PUZZLE_SEED }), false);
       if (!resolutionSent.current) {
         const rr = await cmd(token, `set_resolution(${resRef.current})`, () => c.setResolution({ resolution: resRef.current }), true);
@@ -355,5 +359,15 @@ export function usePuzzleController(opts: {
     resetPuzzle(`mode ${mode}`);
   }, [mode, resetPuzzle]);
 
-  return { resetPuzzle, solve, onSound, onSetup, applyStyleLive };
+  const steerScript = useCallback((beat: RescueBeat) => {
+    if(!beat.cue)return;
+    const instruction=beat.cue;
+    puzzleStore.set({current:{label:beat.id,instruction,audioPrompt:'Quiet castle room ambience, no speech or music.'}});
+    if(modeRef.current==='mock'){updateMock();return;}
+    if(statusRef.current!=='ready')return;
+    const token=puzzleStore.get().run;
+    // Dispatch at the action, with no dialogue timers or chunk waits.
+    void cmd(token, 'set_prompt(script:'+beat.id+')',()=>clientRef.current.setPrompt({prompt:promptOf(instruction)}),true).then(r=>{if(!r.ok&&isCurrent(token))puzzleStore.set({lastError:'Script cue failed: '+beat.id});});
+  },[cmd,updateMock]);
+  return { steerScript, resetPuzzle, solve, onSound, onSetup, applyStyleLive };
 }

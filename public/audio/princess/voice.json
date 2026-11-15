@@ -1,0 +1,6 @@
+{
+  "model": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+  "description": "A young adult princess with a clear, bright, melodious female voice and a light British English accent. Warm, poised and confident, with playful curiosity and a smile in her voice. Speak at a lively, natural conversational pace, with crisp diction and short pauses. An intimate speaking performance, expressive and grounded.",
+  "seed": 42,
+  "script": "app/puzzle/lib/rescueDialogue.json"
+}

@@ -1,3 +1,32 @@
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uilds/
+[Ll]ogs/
+UserSettings/
+.vs/
+.idea/
+*.csproj
+*.sln
+*.slnx
+!Tests/LogicTests.csproj
+.DS_Store
+__pycache__/
+Tools/Speech/runtime/
+Tools/Speech/models/
+Tools/Speech/output/
+Tools/Speech/qwen/.venv/
+Tools/Speech/qwen/bootstrap/
+Tools/Speech/qwen/python/
+Tools/Speech/qwen/models/
+Tools/Speech/qwen/cache/
+
+# Archived generated Unity data
+archive/**/Library/
+archive/**/Logs/
+archive/**/Builds/
+archive/**/UserSettings/
+
 node_modules
 .next
 .env
@@ -20,3 +49,18 @@ certificates
 .next-*/
 data/scenes/backups/*.json
 data/scenes/*.prev.json
+
+# Original clone retained as a local backup
+/Hero-Orbis/
+
+
+# Local migration backup and archived speech runtimes
+/archive/webxr-before-upstream-sync/
+archive/**/Tools/Speech/runtime/
+archive/**/Tools/Speech/models/
+archive/**/Tools/Speech/output/
+archive/**/Tools/Speech/qwen/.venv/
+archive/**/Tools/Speech/qwen/bootstrap/
+archive/**/Tools/Speech/qwen/python/
+archive/**/Tools/Speech/qwen/models/
+archive/**/Tools/Speech/qwen/cache/

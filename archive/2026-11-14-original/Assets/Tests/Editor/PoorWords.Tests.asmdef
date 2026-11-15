@@ -1,0 +1,6 @@
+{
+  "name": "PoorWords.Tests",
+  "references": ["PoorWords.Runtime"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

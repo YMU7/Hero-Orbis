@@ -1,7 +1,7 @@
 "use client";
 
 import * as THREE from "three";
-import { XRHandModelFactory } from "three/examples/jsm/webxr/XRHandModelFactory.js";
+import { ArticulatedHand } from "./articulatedHand";
 
 // Hand-gesture input for the puzzle room (Meta Quest 3 hand tracking).
 //
@@ -11,13 +11,15 @@ import { XRHandModelFactory } from "three/examples/jsm/webxr/XRHandModelFactory.
 //   poke    – index fingertip, for pressing buttons
 //   pinching– between selectstart and selectend
 //
-// Pinch detection uses the WebXR `select` events: on Quest a thumb–index
+// Optical pinches use joint-distance hysteresis (25 mm close, 45 mm open).
+// Tracking recovery requires an open hand. Controllers use WebXR events.
+// On Quest a thumb–index
 // pinch is the primary action of a `generic-hand` input (Meta docs:
 // webxr-hands), and IWER emulates the same. Joint poses come from three's
 // renderer.xr.getHand(i). Controllers still work as a fallback: trigger OR
 // grip counts as a pinch, the point sits just in front of the grip.
 //
-// Hands are drawn with three's primitive "spheres" model (no downloads).
+// Hands use locally generated articulated glove meshes (no downloads).
 
 export type GrabberKind = "hand" | "controller" | "none";
 
@@ -28,6 +30,7 @@ export type Grabber = {
   pinching: boolean;
   point: THREE.Vector3;
   dir: THREE.Vector3;
+  rotation: THREE.Quaternion;
   poke: THREE.Vector3;
   /** True when the pose above was updated this frame. */
   tracked: boolean;
@@ -41,13 +44,15 @@ type Slot = {
   ray: THREE.XRTargetRaySpace;
   grip: THREE.XRGripSpace;
   hand: THREE.XRHandSpace;
+  visual: ArticulatedHand;
+  mustOpen: boolean;
   squeezing: boolean;
   selecting: boolean;
 };
 
 export type HandInputOptions = {
   renderer: THREE.WebGLRenderer;
-  scene: THREE.Scene;
+  scene: THREE.Object3D;
   onPinchStart: (g: Grabber) => void;
   onPinchEnd: (g: Grabber) => void;
   onInputInfo?: (sources: string[]) => void;
@@ -66,16 +71,15 @@ export class HandInput {
 
   constructor(opts: HandInputOptions) {
     this.opts = opts;
-    const factory = new XRHandModelFactory();
-    for (let i = 0; i < 2; i++) this.setup(i, factory);
+    for (let i = 0; i < 2; i++) this.setup(i);
   }
 
-  private setup(index: number, factory: XRHandModelFactory) {
+  private setup(index: number) {
     const { renderer, scene } = this.opts;
     const ray = renderer.xr.getController(index);
     const grip = renderer.xr.getControllerGrip(index);
     const hand = renderer.xr.getHand(index);
-    hand.add(factory.createHandModel(hand, "spheres"));
+    const visual = new ArticulatedHand(hand);
     scene.add(ray, grip, hand);
     // Small visible marker for controllers (no model download).
     const knob = new THREE.Mesh(
@@ -92,6 +96,7 @@ export class HandInput {
       pinching: false,
       point: new THREE.Vector3(),
       dir: new THREE.Vector3(0, 0, -1),
+      rotation: new THREE.Quaternion(),
       poke: new THREE.Vector3(),
       tracked: false,
       label: `input ${index}`,
@@ -105,11 +110,12 @@ export class HandInput {
     line.scale.z = RAY_LEN;
     line.visible = false;
     ray.add(line);
-    const slot: Slot = { g, line, ray, grip, hand, squeezing: false, selecting: false };
+    const slot: Slot = { g, line, ray, grip, hand, visual, mustOpen: true, squeezing: false, selecting: false };
     this.grabbers.push(g);
     this.slots.push(slot);
 
     const setPinch = () => {
+      if (g.kind === "hand") return;
       const now = slot.selecting || slot.squeezing;
       if (now === g.pinching) return;
       g.pinching = now;
@@ -125,6 +131,9 @@ export class HandInput {
       this.report();
     };
     const onDisconnected = () => {
+      g.tracked = false;
+      if (g.pinching) { g.pinching = false; this.opts.onPinchEnd(g); }
+      slot.mustOpen = true;
       slot.selecting = slot.squeezing = false;
       setPinch();
       g.source = null;
@@ -170,6 +179,9 @@ export class HandInput {
       c.removeEventListener("selectend", onSelEnd);
       c.removeEventListener("squeezestart", onSqStart);
       c.removeEventListener("squeezeend", onSqEnd);
+      visual.dispose();
+      knob.geometry.dispose(); (knob.material as THREE.Material).dispose();
+      line.geometry.dispose(); (line.material as THREE.Material).dispose();
       scene.remove(ray, grip, hand);
     });
   }
@@ -182,7 +194,7 @@ export class HandInput {
       const thumb = j["thumb-tip"];
       const index = j["index-finger-tip"];
       const wrist = j["wrist"];
-      if (!thumb || !index || !wrist || !index.visible) return;
+      if (!s.hand.visible || !thumb || !index || !wrist || !thumb.visible || !index.visible || !wrist.visible) return;
       thumb.getWorldPosition(tmpA);
       index.getWorldPosition(tmpB);
       g.point.copy(tmpA).add(tmpB).multiplyScalar(0.5);
@@ -191,6 +203,9 @@ export class HandInput {
       g.dir.copy(tmpB).sub(tmpA);
       if (g.dir.lengthSq() < 1e-8) g.dir.set(0, 0, -1);
       g.dir.normalize();
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(wrist.getWorldQuaternion(new THREE.Quaternion()));
+      tmpM.lookAt(new THREE.Vector3(), g.dir, up);
+      g.rotation.setFromRotationMatrix(tmpM);
       g.tracked = true;
     } else if (g.kind === "controller") {
       const space = s.grip.visible ? s.grip : s.ray;
@@ -199,13 +214,36 @@ export class HandInput {
       g.dir.set(0, 0, -1).applyMatrix4(tmpM).normalize();
       g.point.setFromMatrixPosition(space.matrixWorld).addScaledVector(g.dir, 0.05);
       g.poke.copy(g.point).addScaledVector(g.dir, 0.03);
+      space.getWorldQuaternion(g.rotation);
       g.tracked = true;
     }
   }
 
   /** Per frame, before interaction logic. */
   update() {
-    for (const s of this.slots) this.updateSlot(s);
+    for (const s of this.slots) {
+      this.updateSlot(s);
+      const g = s.g;
+      if (!g.tracked) {
+        if (g.pinching) { g.pinching = false; this.opts.onPinchEnd(g); }
+        s.mustOpen = true;
+        s.visual.update(false, false);
+        continue;
+      }
+      s.visual.update(g.kind === "hand", g.pinching);
+      if (g.kind === "hand") {
+        const joints = s.hand.joints;
+        const a = joints["thumb-tip"]!.getWorldPosition(new THREE.Vector3());
+        const b = joints["index-finger-tip"]!.getWorldPosition(new THREE.Vector3());
+        const distance = a.distanceTo(b);
+        if (distance > 0.045) s.mustOpen = false;
+        const pinching = !s.mustOpen && distance < (g.pinching ? 0.045 : 0.025);
+        if (pinching !== g.pinching) {
+          g.pinching = pinching;
+          if (pinching) this.opts.onPinchStart(g); else this.opts.onPinchEnd(g);
+        }
+      }
+    }
   }
 
   /** World-space pointer ray of a controller (null for hands / untracked). */
@@ -253,7 +291,17 @@ export class HandInput {
     }));
   }
 
+  releaseAll() {
+    for (const s of this.slots) {
+      s.g.tracked = false;
+      if (s.g.pinching) { s.g.pinching = false; this.opts.onPinchEnd(s.g); }
+      s.g.tracked = false; s.mustOpen = true; s.selecting = s.squeezing = false;
+      s.visual.update(false, false);
+    }
+  }
+
   dispose() {
+    this.releaseAll();
     this.cleanups.forEach((f) => f());
     this.cleanups.length = 0;
   }

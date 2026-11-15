@@ -11,7 +11,7 @@ import type { Pt, Stroke } from "./swordRecognizer";
 // ink in VR, where WebGL line width is always 1 px.
 
 const PX_PER_M = 1600;
-const MIN_STEP_M = 0.003; // ignore sub-3 mm moves (controller jitter)
+const MIN_STEP_M = 0.0001; // Unity easel: the first small visible mark earns the reward
 
 export type InkColour = "ink" | "wrong" | "right";
 const COLOURS: Record<InkColour, string> = { ink: "#2b59c3", wrong: "#d8322a", right: "#1f9d55" };

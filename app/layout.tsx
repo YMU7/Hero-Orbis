@@ -3,7 +3,7 @@ import "@reactor-team/ui/styles.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Visko Orbis Stable",
+  title: "Hero-Orbis",
   description:
     "Real-time steerable video generation with Reactor + Visko Orbis Stable — morph the scene mid-stream with live prompts",
 };

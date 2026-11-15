@@ -1,6 +1,7 @@
 "use client";
 
 import * as THREE from "three";
+import type { ToolPhysics, PhysicalTool } from "./toolPhysics";
 import type { DrawingBoard } from "./drawingBoard";
 import type { Grabber } from "./handInput";
 
@@ -8,7 +9,7 @@ import type { Grabber } from "./handInput";
 // chalk. Pinch near it to pick it up; it sits in the pinch, pointing along
 // the hand. While held, it draws whenever its tip (or, forgivingly, the
 // pinch point itself) touches the easel canvas — no button. Let go and it
-// drops back onto the easel ledge.
+// drops with physics and can be picked up again.
 //
 // Desktop fallback: drag with the mouse on the canvas (no crayon needed).
 
@@ -21,6 +22,7 @@ const CONTACT_BEHIND = 0.035; // … or pushed up to 3.5 cm through it
 const LOST_FRAMES = 6;
 
 export type CrayonOptions = {
+  physics: ToolPhysics;
   board: DrawingBoard;
   restPosition: THREE.Vector3;
   restQuaternion: THREE.Quaternion;
@@ -63,6 +65,7 @@ export class Crayon {
   readonly object: THREE.Group;
   private readonly opts: CrayonOptions;
   private holder: Grabber | null = null;
+  private readonly physical: PhysicalTool;
   private lost = 0;
   private mode: DrawMode = "none";
   private readonly cursor: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
@@ -72,6 +75,9 @@ export class Crayon {
   constructor(opts: CrayonOptions) {
     this.opts = opts;
     this.object = makeCrayon();
+    this.object.position.copy(opts.restPosition);
+    this.object.quaternion.copy(opts.restQuaternion);
+    this.physical = opts.physics.add(this.object, new THREE.Vector3(0.009, 0.009, 0.045));
     this.cursor = new THREE.Mesh(
       new THREE.RingGeometry(0.006, 0.011, 24),
       new THREE.MeshBasicMaterial({ color: 0x1f9d55, transparent: true, opacity: 0.9, depthTest: false }),
@@ -91,10 +97,11 @@ export class Crayon {
   }
 
   /** Pinch started: pick the crayon up if the pinch is near it. */
-  tryGrab(g: Grabber): boolean {
-    if (this.holder) return false;
+  tryGrab(g: Grabber, ray?: THREE.Ray | null): boolean {
+    if (this.holder || !g.tracked) return false;
     const c = this.object.getWorldPosition(new THREE.Vector3());
-    if (g.point.distanceTo(c) > GRAB_R) return false;
+    if (g.point.distanceTo(c) > GRAB_R && !ray) return false;
+    if (!this.physical.tryGrab(g, ray)) return false;
     this.holder = g;
     (this.object.getObjectByName("halo") as THREE.Object3D).visible = false;
     this.opts.onHolder(g.label);
@@ -102,16 +109,20 @@ export class Crayon {
     return true;
   }
 
-  /** Pinch ended by this grabber: drop the crayon back on the ledge. */
+  /** Pinch ended by this grabber: release the pen with its measured throwing velocity. */
   release(g: Grabber) {
     if (this.holder !== g) return;
     this.endStroke(g.label);
-    this.putBack();
+    this.physical.release(g);
+    this.holder = null;
+    this.opts.onHolder(null);
+    this.setMode("none");
   }
 
   putBack() {
     if (this.holder) this.endStroke(this.holder.label);
     this.holder = null;
+    this.physical.reset();
     this.object.position.copy(this.opts.restPosition);
     this.object.quaternion.copy(this.opts.restQuaternion);
     const halo = this.object.getObjectByName("halo");
@@ -153,6 +164,7 @@ export class Crayon {
     if (halo?.visible) halo.scale.setScalar(1 + Math.sin(t * 0.004) * 0.15);
     const g = this.holder;
     if (!g) return;
+    if (!g.tracked) { this.release(g); return; }
     if (g.tracked) {
       this.object.position.copy(g.point);
       this.q.setFromUnitVectors(Z, g.dir);

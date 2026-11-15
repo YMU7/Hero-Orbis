@@ -5,6 +5,10 @@ import * as THREE from "three";
 import { VRButton } from "three/examples/jsm/webxr/VRButton.js";
 import { VideoTextureMonitor, type VideoHealth } from "../../mvp/lib/videoTextureHealth";
 import { debug } from "../../mvp/lib/debugState";
+import { initToolPhysics, ToolPhysics } from "../lib/toolPhysics";
+import type { RescueBeat } from '../lib/rescueScript';
+import { UnityRoom } from "../lib/unityRoom";
+import { RoomMovement } from "../lib/roomMovement";
 import { DrawingBoard } from "../lib/drawingBoard";
 import { HandInput, type Grabber } from "../lib/handInput";
 import { Crayon, type DrawMode } from "../lib/crayon";
@@ -57,6 +61,7 @@ export type RoomApi = {
 };
 
 export type PuzzleSceneProps = {
+  onBeat: (beat: RescueBeat) => void;
   showVideo: boolean;
   video: HTMLVideoElement | null;
   placeholderLines: string[];
@@ -112,6 +117,9 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     let yaw = 0;
     let pitch = -0.12;
     camera.rotation.set(pitch, yaw, 0, "YXZ");
+    const rig = new THREE.Group();
+    scene.add(rig); rig.add(camera);
+    const movement = new RoomMovement(rig, camera, renderer);
     addRoomLights(scene);
     const shell = buildShell();
     scene.add(shell);
@@ -166,6 +174,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     // draw call PER EYE in VR). GLB imports stay as they are.
     void Promise.all(decorJobs).then((items) => {
       if (disposed) return;
+      for (const item of items) physics.addStatic(item.g);
       const builtins = items.filter((x) => x.builtin).map((x) => x.g);
       const st = batchStatic(staticRoot, [shell, ...builtins]);
       debug.push("info", `[puzzle] static batching: ${st.meshesIn} meshes → ${st.meshesOut} (skipped ${st.skipped})`);
@@ -189,7 +198,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     mount.add(board.mesh);
 
     // ── Gramophone ───────────────────────────────────────────────────────
-    const gramophone = new Gramophone((on) => propsRef.current.onSound(on));
+    const gramophone = new Gramophone(() => undefined);
     applyTransform(gramophone.group, placement("gramophone"));
     scene.add(gramophone.group);
 
@@ -215,6 +224,11 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     const crayonRest = mount.localToWorld(new THREE.Vector3(0.28, -BOARD_H / 2 + 0.008, 0.06));
     const crayonRestQ = mount.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0)));
 
+    const physics = new ToolPhysics();
+    const unity = new UnityRoom(physics, painting.group, board, (on) => propsRef.current.onSound(on), (beat) => propsRef.current.onBeat(beat));
+    scene.add(unity.group);
+    for (const prop of [easel.group, pedestal.group, gramophone.group]) physics.addStatic(prop);
+
     // ── Interaction: hands / controllers ─────────────────────────────────
     const crayon = new Crayon({
       board,
@@ -224,59 +238,41 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       onHolder: (h) => propsRef.current.onCrayonHolder(h),
       onMode: (m) => propsRef.current.onDrawMode(m),
       pulse: (g, v, ms) => hands.pulse(g, v, ms),
+      physics,
     });
     scene.add(crayon.object);
     let tonearmHolder: Grabber | null = null;
     // Controller pointer-ray targets (Phase E): RESET / CLEAR / gramophone.
     const rayCaster = new THREE.Raycaster();
-    const rayTarget = (
-      g: Grabber,
-    ): { kind: "button"; b: PokeButton; d: number } | { kind: "gramophone"; d: number } | { kind: "target"; t: Target; d: number } | null => {
+    const rayTarget = (g: Grabber): { kind: "button"; b: PokeButton; d: number } | { kind: "tool"; d: number } | null => {
       const r = hands.pointerRay(g);
       if (!r) return null;
       rayCaster.ray.copy(r);
       rayCaster.far = 4;
-      const hit = rayCaster.intersectObjects([...buttons.map((b) => b.mesh), gramophone.group, ...targets.map((t) => t.group)], true)[0];
+      const hit = rayCaster.intersectObjects([...buttons.map((b) => b.mesh), ...physics.tools.filter((t) => t.object.visible).map((t) => t.object)], true)[0];
       if (!hit) return null;
       const b = buttons.find((x) => x.mesh === hit.object);
-      if (b) return { kind: "button", b, d: hit.distance };
-      const t = targetOf(hit.object);
-      return t ? { kind: "target", t, d: hit.distance } : { kind: "gramophone", d: hit.distance };
+      return b ? { kind: "button", b, d: hit.distance } : { kind: "tool", d: hit.distance };
     };
     const hands = new HandInput({
       renderer,
-      scene,
+      scene: rig,
       onPinchStart: (g) => {
-        if (crayon.tryGrab(g)) return;
-        if (!tonearmHolder && gramophone.tryGrab(g.point)) {
-          tonearmHolder = g;
-          roomAudio.play("tonearm-grab");
-          propsRef.current.onTonearmHolder(g.label);
-          hands.pulse(g, 0.4, 40);
-          return;
-        }
-        // A pinch on an object with a pinch puzzle.
-        const pt = targets.find((t) => t.box.clone().expandByScalar(0.05).containsPoint(g.point));
-        if (pt) {
-          fireTarget(pt, "pinch");
-          hands.pulse(g, 0.4, 40);
-          return;
-        }
+        if (crayon.tryGrab(g, hands.pointerRay(g))) return;
+        if (unity.tryGrab(g, hands.pointerRay(g))) { hands.pulse(g, 0.5, 45); return; }
         // Controllers only: nothing in reach → use the pointer ray.
         const hit = rayTarget(g);
         if (hit?.kind === "button") {
           pressButton(hit.b, `controller ray (${g.label})`);
           hands.pulse(g, 0.5, 40);
-        } else if (hit?.kind === "target") {
-          fireTarget(hit.t, "click");
-          hands.pulse(g, 0.5, 40);
-        } else if (hit?.kind === "gramophone") {
-          gramophone.toggle();
+        } else if (hit?.kind === "tool") {
+          // Only a hammer impact restores room sound.
           hands.pulse(g, 0.5, 40);
         }
       },
       onPinchEnd: (g) => {
         crayon.release(g);
+        physics.release(g);
         if (tonearmHolder === g) {
           gramophone.release();
           tonearmHolder = null;
@@ -287,6 +283,9 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     });
 
     const resetRoom = () => {
+      physics.reset();
+      unity.reset();
+      movement.reset();
       crayon.putBack();
       board.clear();
       if (tonearmHolder) {
@@ -305,28 +304,32 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const r = el.getBoundingClientRect();
       ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
       raycaster.setFromCamera(ndc, camera);
-      const pickables: THREE.Object3D[] = [board.mesh, gramophone.group, ...buttons.map((b) => b.mesh), ...targets.map((t) => t.group)];
-      const hit = raycaster.intersectObjects(pickables, true)[0];
+      const targets: THREE.Object3D[] = [board.mesh, unity.mute, ...physics.tools.filter(t=>t.object.visible && unity.rescue.canGrab(t)).map(t=>t.object), ...buttons.map((b) => b.mesh)];
+      const hit = raycaster.intersectObjects(targets, true)[0];
       if (!hit) return null;
       if (hit.object === board.mesh && hit.uv) return { kind: "board" as const, p: board.uvToBoard(hit.uv) };
       const b = buttons.find((x) => x.mesh === hit.object);
       if (b) return { kind: "button" as const, b };
-      const t = targetOf(hit.object);
-      if (t) return { kind: "target" as const, t };
-      return { kind: "gramophone" as const };
+      let object: THREE.Object3D | null = hit.object;
+      while(object){const tool=physics.tools.find(t=>t.object===object);if(tool)return {kind:'tool' as const,tool};object=object.parent;}
+      return { kind: "mute" as const };
     };
+    const desktop: Grabber = {index: -1,kind:'controller',source:null,pinching:true,point:new THREE.Vector3(),dir:new THREE.Vector3(0,0,-1),rotation:new THREE.Quaternion(),poke:new THREE.Vector3(),tracked:true,label:'desktop'};
+    let desktopTool: typeof unity.hammer | null = null;
+    const updateDesktop = () => {camera.getWorldDirection(desktop.dir);camera.getWorldQuaternion(desktop.rotation);desktop.point.copy(camera.getWorldPosition(new THREE.Vector3())).addScaledVector(desktop.dir,.65);};
     let mouseDrawing = false;
     const onDown = (ev: PointerEvent) => {
       if (renderer.xr.isPresenting || ev.button !== 0) return;
+      if(desktopTool){if(desktopTool===unity.rescue.camera&&unity.rescue.shoot())return;desktopTool.release(desktop);desktopTool=null;return;}
       const h = pick(ev);
       if (!h) return;
+      if(h.kind==='tool'){updateDesktop();desktop.point.copy(h.tool.object.position);if(h.tool.tryGrab(desktop)){desktopTool=h.tool;}return;}
       if (h.kind === "board") {
         mouseDrawing = true;
         el.setPointerCapture(ev.pointerId);
         crayon.mouseBegin(h.p);
       } else if (h.kind === "button") pressButton(h.b, "desktop mouse");
-      else if (h.kind === "target") fireTarget(h.t, "click");
-      else gramophone.toggle();
+      else unity.desktopStrike();
     };
     const onMove = (ev: PointerEvent) => {
       if (renderer.xr.isPresenting) return;
@@ -343,6 +346,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     const onKey = (ev: KeyboardEvent) => {
       const t = ev.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if(ev.code==='Space'&&desktopTool===unity.rescue.camera){ev.preventDefault();unity.rescue.shoot();return;}
       const step = 0.06;
       if (ev.key === "ArrowLeft") yaw += step;
       else if (ev.key === "ArrowRight") yaw -= step;
@@ -378,6 +382,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       strokes: () => board.strokes.map((s) => s.length),
       crayonHolder: () => crayon.holderLabel,
       tonearmHolder: () => tonearmHolder?.label ?? null,
+      tools: () => physics.tools.map((tool) => ({ name: tool.object.name, visible: tool.object.visible, holder: tool.holder?.label ?? null, position: tool.object.position.toArray() })),
       /** Render cost of the last frame (Quest budget checks). */
       renderInfo: () => {
         let meshes = 0;
@@ -444,7 +449,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     const vrButton = VRButton.createButton(renderer, { optionalFeatures: ["hand-tracking", "local-floor", "bounded-floor"] });
     container.appendChild(vrButton);
     const onStart = () => propsRef.current.onXRSession(true);
-    const onEnd = () => propsRef.current.onXRSession(false);
+    const onEnd = () => { hands.releaseAll(); propsRef.current.onXRSession(false); };
     renderer.xr.addEventListener("sessionstart", onStart);
     renderer.xr.addEventListener("sessionend", onEnd);
 
@@ -454,11 +459,18 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const now = performance.now();
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+      movement.update(dt);
+      rig.updateMatrixWorld(true);
       hands.update();
       if (renderer.xr.isPresenting) for (const g of hands.grabbers) if (g.kind === "controller") hands.setRayLength(g, rayTarget(g)?.d ?? null);
       if (tonearmHolder?.tracked) gramophone.drag(tonearmHolder.point);
       gramophone.update(dt, t);
       crayon.update(t);
+      updateDesktop();
+      if(desktopTool?.holder!==desktop)desktopTool=null;
+      physics.update(dt);
+      physics.highlight(hands.grabbers);
+      unity.update(dt);
       // Poke buttons with a fingertip (hands) or the controller tip.
       if (renderer.xr.isPresenting) {
         for (const b of buttons) {
@@ -519,7 +531,10 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
       window.removeEventListener("keydown", onKey);
+      movement.dispose();
       hands.dispose();
+      unity.dispose();
+      physics.dispose();
       board.dispose();
       textures.forEach((t) => t.dispose());
       placeholder.tex.dispose();
@@ -535,7 +550,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
     };
     };
 
-    void fetchScene(PUZZLE_SCENE_ID)
+    void initToolPhysics().then(() => fetchScene(PUZZLE_SCENE_ID))
       .catch((e) => {
         debug.push("error", `[puzzle] layout not loaded (${(e as Error).message}) — using the default room`);
         return emptyScene();
