@@ -4,6 +4,8 @@ import type { UnityRoom } from './unityRoom';
 import type { RescueStage, RescueBeat } from './rescueScript';
 import { RESCUE_SCRIPT } from './rescueScript';
 import { recognizeSword } from './swordRecognizer';
+import type { Grabber } from './handInput';
+import type { SoundId } from './roomAudio';
 import { BOARD_H, ROOM } from '../puzzleConfig';
 import type { DrawingBoard } from './drawingBoard';
 
@@ -11,6 +13,22 @@ const material = (color: number, metalness = 0) => new THREE.MeshStandardMateria
 function block(g: THREE.Group, size: number[], p: number[], m: THREE.Material) {
  const o = new THREE.Mesh(new THREE.BoxGeometry(size[0],size[1],size[2]),m); o.position.set(p[0],p[1],p[2]); g.add(o); return o;
 }
+
+/** Feedback the room asks the scene for (no-ops in tests). `haptic(null)`
+ *  pulses every tracked controller. `bark` plays a short line if she is
+ *  not already talking. */
+export type RescueHooks = {
+ sound: (id: SoundId) => void;
+ haptic: (g: Grabber | null, strength: number, ms: number) => void;
+ bark: (id: string) => void;
+};
+
+type Particle = { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number; drag: number; spin: THREE.Vector3 };
+
+/** Seconds the fireball takes to float out of the canvas into the room. */
+export const FIRE_EMERGE_S = 0.9;
+const CONFETTI = [0xf6d47a, 0xb8e8ff, 0xf3b6d8, 0xc9b8ff, 0xffffff, 0x9fe3c1];
+
 export class RescueRoom {
  stage: RescueStage = 'silence';
  readonly group = new THREE.Group();
@@ -20,18 +38,31 @@ export class RescueRoom {
  readonly key: PhysicalTool;
  readonly camera: PhysicalTool;
  readonly photo: PhysicalTool;
+ hooks: RescueHooks = { sound: () => {}, haptic: () => {}, bark: () => {} };
+ /** Seconds from breaking the silence to the escape (null until escaped). */
+ rescueSeconds: number | null = null;
  private elapsed = 0;
+ private unmutedAt = 0;
  private melting = -1;
  private falling = false;
  private fallSpeed = 0;
  private rippleAge = -1;
+ private rippleGrow = 6;
  private readonly ripple: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
  private readonly glassHome: THREE.Vector3;
- private readonly debris: Array<{mesh: THREE.Mesh; velocity: THREE.Vector3}> = [];
+ private readonly particles: Particle[] = [];
  private fireCaught = false;
+ private fireEmerge = -1;
+ private fireOut = false;
+ private fireT = 0;
  private shutterDown = false;
  private fireDelay: number | null = null;
- private fireDialogueDelay: number | null = null;
+ private flashAge = -1;
+ private readonly flashLight: THREE.PointLight;
+ private readonly flashDisc: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
+ private lastPoke = -Infinity;
+ private endCard: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+ private endCardAge = -1;
  private run = 0;
  constructor(private physics: ToolPhysics, private painting: THREE.Group, private board: DrawingBoard, private room: UnityRoom, private emit: (beat: RescueBeat) => void | Promise<void>) {
   const gold=material(0xdab45a,.7), wood=material(0x8a5520), dark=material(0x253b68);
@@ -66,6 +97,10 @@ export class RescueRoom {
   this.fire=make('magic-fireball',fire,position(0,-.1,.9),new THREE.Vector3(.1,.1,.1));
   const camera=new THREE.Group();block(camera,[.22,.15,.12],[0,0,0],dark);block(camera,[.07,.18,.07],[.04,-.12,.015],wood);
   const lens=new THREE.Mesh(new THREE.CylinderGeometry(.065,.065,.10,16),gold);lens.rotation.x=Math.PI/2;lens.position.z=-.10;camera.add(lens);block(camera,[.05,.025,.04],[.07,.09,0],gold);
+  // Flash: a light burst and a bright disc on the lens front.
+  this.flashLight=new THREE.PointLight(0xfff6e0,0,3);this.flashLight.position.set(0,0,-.2);camera.add(this.flashLight);
+  this.flashDisc=new THREE.Mesh(new THREE.CircleGeometry(.07,24),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide}));
+  this.flashDisc.position.set(0,0,-.152);this.flashDisc.visible=false;camera.add(this.flashDisc);
   camera.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion())).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI));
   this.camera=make('camera',camera,position(1.72,-.55,.3),new THREE.Vector3(.13,.15,.12));
   const photo=new THREE.Group();block(photo,[.25,.3,.014],[0,0,0],material(0xfff4d8));block(photo,[.21,.21,.016],[0,.025,0],dark);
@@ -77,19 +112,96 @@ export class RescueRoom {
  }
  private show(t:PhysicalTool,on:boolean) {if(!on&&t.holder)t.release(t.holder,false);t.object.visible=on;t.body.setEnabled(on);}
  advance(stage:RescueStage) {this.stage=stage;return this.emit(RESCUE_SCRIPT.find(b=>b.id===stage)!);}
- unmute() {if(this.stage==='silence')this.advance('unmuted');}
+ /** A cue-only beat (Orbis steering, no stage change, no voice). */
+ private cue(id:string) {const beat=RESCUE_SCRIPT.find(b=>b.id===id);if(beat)void this.emit(beat);}
+ unmute() {if(this.stage==='silence'){this.unmutedAt=this.elapsed;this.advance('unmuted');}}
  private paintingContact(t:PhysicalTool) {const p=this.painting.worldToLocal(t.object.getWorldPosition(new THREE.Vector3()));return Math.abs(p.x)<1.2&&Math.abs(p.y)<.675&&Math.abs(p.z)<.18;}
+ /** A ring spreading across the canvas where something touched it. */
+ private pulseRipple(world:THREE.Vector3|null,local:THREE.Vector3|null,color:number,grow=6) {
+  this.ripple.position.copy(local??this.painting.worldToLocal(world!.clone()));this.ripple.position.z=.04;
+  this.ripple.material.color.setHex(color);this.rippleGrow=grow;this.rippleAge=0;
+ }
+ private burst(at:THREE.Vector3,count:number,make:(i:number)=>{color:number;emissive?:boolean;size:number;velocity:THREE.Vector3;life:number;drag:number}) {
+  for(let i=0;i<count;i++){
+   const p=make(i);
+   const m=new THREE.MeshStandardMaterial({color:p.color,roughness:.6,side:THREE.DoubleSide,...(p.emissive?{emissive:p.color,emissiveIntensity:2}:{})});
+   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(p.size,p.size*.6),m);
+   mesh.position.copy(at);mesh.rotation.set(i*1.7,i*2.3,i*.9);this.group.add(mesh);
+   this.particles.push({mesh,velocity:p.velocity,life:p.life,drag:p.drag,spin:new THREE.Vector3(Math.sin(i*1.3)*6,Math.cos(i*.7)*6,Math.sin(i*2.1)*4)});
+  }
+ }
+ /** Shutter: always flashes while held; makes a photo only when it matters. */
  shoot() {
-  if(this.stage!=='rejected'||!this.camera.holder)return false;
+  if(!this.camera.holder)return false;
+  this.flashAge=0;this.hooks.sound('shutter');this.hooks.haptic(this.camera.holder,.7,60);
+  if(this.stage!=='rejected')return false;
   const origin=this.camera.object.position, dir=new THREE.Vector3(0,0,-1).applyQuaternion(this.camera.object.quaternion);
   const ray=new THREE.Ray(origin,dir), target=this.key.object.position;
   if(dir.dot(target.clone().sub(origin))<0||ray.distanceToPoint(target)>.5)return false;
   this.photo.reset();this.photo.body.setTranslation(origin.clone().addScaledVector(dir,.3),true);this.photo.sync();this.show(this.photo,true);this.photo.drop(new THREE.Vector3(0,.3,0));this.advance('photo');return true;
  }
+ /** A hand reached for the hanging box (it cannot be grabbed). */
+ poke(point:THREE.Vector3|null) {
+  if(!this.glass.visible||this.falling||this.stage==='silence')return false;
+  if(point&&point.distanceTo(this.glass.position)>.4)return false;
+  if(this.elapsed-this.lastPoke<12)return true;
+  this.lastPoke=this.elapsed;this.hooks.bark('box-poke');return true;
+ }
+ private spawnFire() {
+  this.show(this.fire,true);this.fireEmerge=0;this.fireOut=false;this.fireT=0;
+  this.placeFire(0);
+  this.pulseRipple(null,new THREE.Vector3(0,-.1,0),0xffa43a,4);
+  this.hooks.sound('portal');
+  this.cue('released');
+ }
+ private placeFire(k:number) {
+  const e=1-Math.pow(1-k,3);
+  this.fire.body.setTranslation(this.painting.localToWorld(new THREE.Vector3(0,-.1,.02+.88*e)),true);this.fire.sync();
+  this.fire.object.scale.setScalar(.25+.75*e);
+ }
+ private burnRope() {
+  const holder=this.fire.holder;
+  this.rope.visible=false;this.show(this.fire,false);this.falling=true;
+  this.hooks.sound('rope-snap');this.hooks.haptic(holder,1,140);
+  const at=this.fire.object.position.clone();
+  this.burst(at,26,i=>({color:i%3?0xff8a2a:0xffd36a,emissive:true,size:.02,velocity:new THREE.Vector3(Math.sin(i*2.4)*.5,.8+((i*37)%10)/10,Math.cos(i*2.4)*.5),life:1.2,drag:1.5}));
+  this.advance('fire');
+ }
+ private escape() {
+  this.rescueSeconds=this.elapsed-this.unmutedAt;
+  this.hooks.sound('portal');this.hooks.sound('fanfare');this.hooks.haptic(null,1,250);
+  const top=this.painting.localToWorld(new THREE.Vector3(0,.9,.3));
+  this.burst(top,140,i=>{const a=i*2.399,r=.4+((i*53)%100)/100*1.4;return {color:CONFETTI[i%CONFETTI.length],size:.035,velocity:new THREE.Vector3(Math.cos(a)*r,1.2+((i*29)%10)/8,Math.abs(Math.sin(a))*r+.4).applyQuaternion(this.painting.getWorldQuaternion(new THREE.Quaternion())),life:7,drag:2.2};});
+  const run=this.run;
+  const spoken=this.advance('escaped');
+  const showCard=()=>{if(this.run===run&&this.stage==='escaped')this.showEndCard();};
+  if(spoken&&typeof spoken.then==='function')void spoken.then(showCard,showCard);else showCard();
+ }
+ private showEndCard() {
+  if(this.endCard||typeof document==='undefined')return;
+  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=512;
+  const ctx=canvas.getContext('2d');if(!ctx)return;
+  const g=ctx.createLinearGradient(0,0,0,512);g.addColorStop(0,'#2a2140');g.addColorStop(1,'#151022');
+  ctx.fillStyle=g;ctx.fillRect(0,0,1024,512);
+  ctx.strokeStyle='#e2c068';ctx.lineWidth=10;ctx.strokeRect(14,14,996,484);ctx.lineWidth=2;ctx.strokeRect(32,32,960,448);
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillStyle='#f6d47a';ctx.font='bold 76px serif';ctx.fillText('The Princess Is Free!',512,140);
+  const s=Math.max(0,Math.round(this.rescueSeconds??0));
+  ctx.fillStyle='#fbe7b5';ctx.font='italic 46px serif';ctx.fillText(`Rescued in ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`,512,250);
+  ctx.fillStyle='#cfc4e8';ctx.font='36px serif';ctx.fillText('Thank you for playing HERO',512,340);
+  ctx.fillStyle='#9d93b8';ctx.font='28px serif';ctx.fillText('Press RESET on the pedestal to play again',512,415);
+  const tex=new THREE.CanvasTexture(canvas);tex.colorSpace=THREE.SRGBColorSpace;
+  this.endCard=new THREE.Mesh(new THREE.PlaneGeometry(1.2,.6),new THREE.MeshBasicMaterial({map:tex,toneMapped:false,transparent:true,opacity:0}));
+  this.endCard.position.set(0,-.95,.5);this.endCard.rotation.x=-.35;this.endCard.scale.setScalar(.01);
+  this.painting.add(this.endCard);this.endCardAge=0;
+ }
+ private clearEndCard() {
+  if(!this.endCard)return;
+  this.endCard.removeFromParent();this.endCard.geometry.dispose();this.endCard.material.map?.dispose();this.endCard.material.dispose();this.endCard=null;this.endCardAge=-1;
+ }
  update(dt:number) {
   this.elapsed+=dt;
-  if(this.fireDialogueDelay!==null){this.fireDialogueDelay-=dt;if(this.fireDialogueDelay<=0){this.fireDialogueDelay=null;this.advance('fire');}}
-  if(this.fireDelay!==null){this.fireDelay-=dt;if(this.fireDelay<=0){this.fireDelay=null;this.show(this.fire,true);this.fireDialogueDelay=1.5;}}
+  if(this.fireDelay!==null){this.fireDelay-=dt;if(this.fireDelay<=0){this.fireDelay=null;this.spawnFire();}}
   if(this.room.wallSword.holder&&this.melting<0)this.melting=0;
   if(this.melting>=0){this.melting+=dt;this.room.wallSword.object.scale.z=Math.max(.03,1-Math.max(0,this.melting-1.2)/.8);if(this.melting>=2){this.room.wallSword.reset();this.room.wallSword.object.scale.setScalar(1);this.melting=-1;if(this.stage==='unmuted')this.advance('melted');}}
   if(this.stage==='melted'&&recognizeSword(this.board.strokes,BOARD_H).isSword){this.room.spawnReward();this.advance('drawn');}
@@ -97,30 +209,53 @@ export class RescueRoom {
   const blade=new THREE.Line3(sword.localToWorld(new THREE.Vector3(0,0,-.15)),sword.localToWorld(new THREE.Vector3(0,0,-.86)));
   if(this.stage==='drawn'&&this.room.reward.holder&&blade.closestPointToPoint(this.rope.position,true,new THREE.Vector3()).distanceTo(this.rope.position)<.6){
    const run=this.run;
+   // The rope cue (she conjures a fireball) and the line start now; the
+   // fireball leaves the canvas only after both the line and the picture
+   // have caught up, so the painting already shows it in her hands.
    const spoken=this.advance('rope');
    const ready=()=>{if(this.run===run&&this.stage==='rope')this.fireDelay=1.5;};
    if(spoken&&typeof spoken.then==='function')void spoken.then(ready,ready);else ready();
   }
-  if(this.stage==='fire'||(this.stage==='rope'&&this.fire.object.visible)){
-   if(this.fire.holder)this.fireCaught=true;
-   if(!this.fireCaught){this.fire.body.setTranslation(this.painting.localToWorld(new THREE.Vector3(Math.sin(this.elapsed*1.3)*.7,-.1,.9)),true);this.fire.sync();}
+  if(this.fireEmerge>=0){this.fireEmerge+=dt;const k=Math.min(1,this.fireEmerge/FIRE_EMERGE_S);this.placeFire(k);if(k>=1){this.fireEmerge=-1;this.fireOut=true;}}
+  if(this.stage==='rope'&&this.fire.object.visible&&this.fireOut){
+   if(this.fire.holder&&!this.fireCaught){this.fireCaught=true;this.hooks.sound('fire-catch');this.hooks.haptic(this.fire.holder,.6,90);}
+   if(!this.fireCaught){this.fireT+=dt;this.fire.body.setTranslation(this.painting.localToWorld(new THREE.Vector3(Math.sin(this.fireT*1.3)*.7,-.1,.9)),true);this.fire.sync();}
    const p=this.fire.object.position, rope=this.rope.position;
-   if(this.stage==='fire'&&this.fireCaught&&Math.abs(p.y-rope.y)<.65&&Math.hypot(p.x-rope.x,p.z-rope.z)<.18){this.rope.visible=false;this.show(this.fire,false);this.falling=true;}
+   if(this.fireCaught&&Math.abs(p.y-rope.y)<.65&&Math.hypot(p.x-rope.x,p.z-rope.z)<.18)this.burnRope();
   }
-  if(this.falling){this.fallSpeed+=9.81*dt;this.glass.position.y-=this.fallSpeed*dt;this.key.body.setTranslation(this.glass.position,true);this.key.sync();if(this.glass.position.y<=.22){this.falling=false;this.glass.visible=false;this.key.drop();this.advance('key');for(let i=0;i<18;i++){const mesh=new THREE.Mesh(new THREE.TetrahedronGeometry(.04),material(0xb8e8ff));mesh.position.copy(this.glass.position);this.group.add(mesh);this.debris.push({mesh,velocity:new THREE.Vector3(Math.sin(i*2.4),1.2,Math.cos(i*2.4))});}}}
+  if(this.falling){this.fallSpeed+=9.81*dt;this.glass.position.y-=this.fallSpeed*dt;this.key.body.setTranslation(this.glass.position,true);this.key.sync();if(this.glass.position.y<=.22){this.falling=false;this.glass.visible=false;this.key.drop();this.hooks.sound('portal-reject');this.advance('key');this.burst(this.glass.position.clone(),18,i=>({color:0xb8e8ff,size:.05,velocity:new THREE.Vector3(Math.sin(i*2.4),1.2,Math.cos(i*2.4)),life:Infinity,drag:0}));}}
   if(this.stage==='key'&&this.key.holder&&this.paintingContact(this.key)){
-   this.ripple.position.copy(this.painting.worldToLocal(this.key.object.position.clone()));this.ripple.position.z=.04;this.rippleAge=0;
-   this.key.release(this.key.holder,false);const normal=new THREE.Vector3(0,0,1).applyQuaternion(this.painting.getWorldQuaternion(new THREE.Quaternion()));this.key.drop(normal.multiplyScalar(1.5));this.advance('rejected');
+   const holder=this.key.holder;
+   this.pulseRipple(this.key.object.position,null,0x83dfff);this.hooks.sound('portal-reject');this.hooks.haptic(holder,.8,120);
+   this.key.release(holder,false);const normal=new THREE.Vector3(0,0,1).applyQuaternion(this.painting.getWorldQuaternion(new THREE.Quaternion()));this.key.drop(normal.multiplyScalar(1.5));this.advance('rejected');
   }
-  if(this.stage==='photo'&&this.photo.holder&&this.paintingContact(this.photo)){this.show(this.photo,false);this.advance('escaped');}
+  if(this.stage==='photo'&&this.photo.holder&&this.paintingContact(this.photo)){
+   this.hooks.haptic(this.photo.holder,1,150);
+   this.pulseRipple(this.photo.object.position,null,0xf6d47a,9);
+   this.show(this.photo,false);this.escape();
+  }
   const holder=this.camera.holder;
   const shutter=!!holder?.source?.gamepad?.buttons[0]?.pressed;
   if(shutter&&!this.shutterDown)this.shoot();this.shutterDown=shutter;
   // Hand tracking: aim and pinch the camera's shutter with the free hand (handled by press).
-  if(this.rippleAge>=0){this.rippleAge+=dt;this.ripple.scale.setScalar(1+this.rippleAge*6);this.ripple.material.opacity=Math.max(0,1-this.rippleAge);}
-  for(const d of this.debris){d.velocity.y-=dt*9.81;d.mesh.position.addScaledVector(d.velocity,dt);if(d.mesh.position.y<.025){d.mesh.position.y=.025;d.velocity.set(0,0,0);}}
+  if(this.rippleAge>=0){this.rippleAge+=dt;this.ripple.scale.setScalar(1+this.rippleAge*this.rippleGrow);this.ripple.material.opacity=Math.max(0,1-this.rippleAge);}
+  if(this.flashAge>=0){this.flashAge+=dt;const f=Math.max(0,1-this.flashAge/.25);this.flashLight.intensity=12*f;this.flashDisc.visible=f>0;this.flashDisc.material.opacity=f;if(f<=0)this.flashAge=-1;}
+  if(this.endCard&&this.endCardAge>=0){this.endCardAge+=dt;const k=Math.min(1,this.endCardAge/.6),e=1-Math.pow(1-k,3);this.endCard.scale.setScalar(.01+.99*e);this.endCard.material.opacity=e;this.endCard.position.y=-.95+Math.sin(this.endCardAge*1.4)*.015;}
+  for(let i=this.particles.length-1;i>=0;i--){
+   const d=this.particles[i];d.life-=dt;
+   d.velocity.y-=dt*9.81*(d.drag?.35:1);d.velocity.multiplyScalar(Math.max(0,1-d.drag*dt));
+   d.mesh.position.addScaledVector(d.velocity,dt);
+   if(d.drag){d.mesh.rotation.x+=d.spin.x*dt;d.mesh.rotation.y+=d.spin.y*dt;d.mesh.rotation.z+=d.spin.z*dt;}
+   if(d.mesh.position.y<.025){d.mesh.position.y=.025;d.velocity.set(0,0,0);d.spin.set(0,0,0);}
+   if(d.life<.5)d.mesh.scale.setScalar(Math.max(0,d.life/.5));
+   if(d.life<=0)this.removeParticle(i);
+  }
  }
- canGrab(t:PhysicalTool){return t!==this.key||['key','rejected','photo','escaped'].includes(this.stage);}
- reset(){this.run++;this.fireDelay=null;this.fireDialogueDelay=null;this.stage='silence';this.elapsed=0;this.melting=-1;this.falling=false;this.fallSpeed=0;this.fireCaught=false;this.shutterDown=false;this.rippleAge=-1;this.ripple.material.opacity=0;this.glass.visible=this.rope.visible=true;this.glass.position.copy(this.glassHome);for(const t of [this.key,this.camera,this.photo,this.fire])t.reset();this.show(this.key,true);this.show(this.camera,true);this.show(this.fire,false);this.show(this.photo,false);this.room.wallSword.object.scale.setScalar(1);for(const d of this.debris){d.mesh.removeFromParent();d.mesh.geometry.dispose();(d.mesh.material as THREE.Material).dispose();}this.debris.length=0;}
- dispose(){this.ripple.removeFromParent();this.ripple.geometry.dispose();this.ripple.material.dispose();}
+ private removeParticle(i:number){const d=this.particles[i];d.mesh.removeFromParent();d.mesh.geometry.dispose();(d.mesh.material as THREE.Material).dispose();this.particles.splice(i,1);}
+ canGrab(t:PhysicalTool){
+  if(t===this.fire)return this.fireOut;
+  return t!==this.key||['key','rejected','photo','escaped'].includes(this.stage);
+ }
+ reset(){this.run++;this.fireDelay=null;this.stage='silence';this.elapsed=0;this.unmutedAt=0;this.rescueSeconds=null;this.melting=-1;this.falling=false;this.fallSpeed=0;this.fireCaught=false;this.fireEmerge=-1;this.fireOut=false;this.fireT=0;this.shutterDown=false;this.lastPoke=-Infinity;this.rippleAge=-1;this.ripple.material.opacity=0;this.flashAge=-1;this.flashLight.intensity=0;this.flashDisc.visible=false;this.clearEndCard();this.glass.visible=this.rope.visible=true;this.glass.position.copy(this.glassHome);for(const t of [this.key,this.camera,this.photo,this.fire])t.reset();this.fire.object.scale.setScalar(1);this.show(this.key,true);this.show(this.camera,true);this.show(this.fire,false);this.show(this.photo,false);this.room.wallSword.object.scale.setScalar(1);for(let i=this.particles.length-1;i>=0;i--)this.removeParticle(i);}
+ dispose(){this.clearEndCard();this.ripple.removeFromParent();this.ripple.geometry.dispose();this.ripple.material.dispose();this.flashDisc.geometry.dispose();this.flashDisc.material.dispose();}
 }

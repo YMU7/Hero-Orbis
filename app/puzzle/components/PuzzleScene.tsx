@@ -26,6 +26,7 @@ import {
   isSingletonAsset,
   normalizePuzzleScene,
   paint,
+  paintingFx,
   type BuiltinKind,
   type PokeButton,
 } from "../lib/roomParts";
@@ -63,6 +64,10 @@ export type RoomApi = {
 
 export type PuzzleSceneProps = {
   onBeat: (beat: RescueBeat) => void | Promise<void>;
+  /** A short princess line (hint / quip) the room asked for. */
+  onBark: (id: string) => void;
+  /** Orbis is catching up with a cue: the painting shimmers. */
+  morphing: boolean;
   showVideo: boolean;
   video: HTMLVideoElement | null;
   placeholderLines: string[];
@@ -285,6 +290,14 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       },
       onInputInfo: (s) => propsRef.current.onInputInfo(s),
     });
+    unity.rescue.hooks = {
+      sound: (id) => roomAudio.play(id),
+      haptic: (g, v, ms) => {
+        if (g) hands.pulse(g, v, ms);
+        else for (const h of hands.grabbers) if (h.kind === "controller" && h.tracked) hands.pulse(h, v, ms);
+      },
+      bark: (id) => propsRef.current.onBark(id),
+    };
 
     const resetRoom = () => {
       physics.reset();
@@ -308,10 +321,11 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const r = el.getBoundingClientRect();
       ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
       raycaster.setFromCamera(ndc, camera);
-      const targets: THREE.Object3D[] = [board.mesh, unity.mute, ...physics.tools.filter(t=>t.object.visible && unity.rescue.canGrab(t)).map(t=>t.object), ...buttons.map((b) => b.mesh)];
+      const targets: THREE.Object3D[] = [board.mesh, unity.mute, ...physics.tools.filter(t=>t.object.visible && unity.rescue.canGrab(t)).map(t=>t.object), ...buttons.map((b) => b.mesh), ...(unity.rescue.glass.visible ? [unity.rescue.glass] : [])];
       const hit = raycaster.intersectObjects(targets, true)[0];
       if (!hit) return null;
       if (hit.object === board.mesh && hit.uv) return { kind: "board" as const, p: board.uvToBoard(hit.uv) };
+      for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) if (o === unity.rescue.glass) return { kind: "box" as const };
       const b = buttons.find((x) => x.mesh === hit.object);
       if (b) return { kind: "button" as const, b };
       let object: THREE.Object3D | null = hit.object;
@@ -328,6 +342,7 @@ export function PuzzleScene(props: PuzzleSceneProps) {
       const h = pick(ev);
       if (!h) return;
       if(h.kind==='tool'){updateDesktop();desktop.point.copy(h.tool.object.position);if(h.tool.tryGrab(desktop)){desktopTool=h.tool;}return;}
+      if(h.kind==='box'){unity.rescue.poke(null);return;}
       if (h.kind === "board") {
         mouseDrawing = true;
         el.setPointerCapture(ev.pointerId);
@@ -505,6 +520,11 @@ export function PuzzleScene(props: PuzzleSceneProps) {
         b.mesh.scale.y = pressed ? 0.5 : 1;
       }
       const p = propsRef.current;
+      // Shimmer: fast in (the action just happened), slow out (the new
+      // picture fades in underneath while Orbis morphs).
+      paintingFx.time.value += dt;
+      const target = p.morphing ? 1 : 0;
+      paintingFx.shimmer.value += (target - paintingFx.shimmer.value) * Math.min(1, dt * (p.morphing ? 8 : 1.6));
       const wall = Date.now();
       board.setColour(wall < p.swordFlashUntil ? "right" : wall < p.wrongFlashUntil && Math.floor(wall / 180) % 2 === 0 ? "wrong" : "ink");
       board.update();

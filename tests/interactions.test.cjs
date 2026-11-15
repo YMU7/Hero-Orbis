@@ -57,15 +57,18 @@ test('rescue follows player actions, rejects shortcuts, and resets every prop', 
   assert.equal(r.stage,'rope');assert.equal(r.fire.object.visible,false);
   room.update(1.49);assert.equal(r.fire.object.visible,false,'buffer before fireball appears');
   room.update(.02);assert.equal(r.fire.object.visible,true);assert.equal(r.stage,'rope');
-  room.update(1.49);assert.equal(r.stage,'rope','player sees fireball before reaction line');
-  room.update(.02);assert.equal(r.stage,'fire');
-  grab(r.fire);move(r.fire,r.rope.position);room.update(.01);assert.equal(r.rope.visible,false);
+  assert.equal(r.canGrab(r.fire),false,'fireball is still leaving the canvas');
+  assert.ok(painting.worldToLocal(r.fire.object.position.clone()).z<.2,'fireball starts at the painting surface');
+  room.update(1);assert.equal(r.canGrab(r.fire),true,'fireball is out in the room');
+  room.update(5);assert.equal(r.stage,'rope','the reaction line waits for the burn, not a timer');
+  grab(r.fire);move(r.fire,r.rope.position);room.update(.01);assert.equal(r.rope.visible,false);assert.equal(r.stage,'fire');
   for(let i=0;i<120;i++)room.update(1/90);
   assert.equal(r.stage,'key');assert.equal(r.glass.visible,false);assert.equal(r.canGrab(r.key),true);
   grab(r.key);move(r.key,painting.localToWorld(new THREE.Vector3(0,0,.1)));room.update(.01);assert.equal(r.stage,'rejected');assert.equal(r.key.holder,null);
   grab(r.camera);move(r.camera,new THREE.Vector3(0,1,1));move(r.key,new THREE.Vector3(.3,1,0));assert.equal(r.shoot(),true,'generous camera hitbox');assert.equal(r.stage,'photo');assert.equal(r.shoot(),false,'no duplicate photo');
   grab(r.photo);move(r.photo,painting.localToWorld(new THREE.Vector3(0,0,.1)));room.update(.01);assert.equal(r.stage,'escaped');assert.equal(r.photo.object.visible,false);
-  assert.deepEqual(events,['unmuted','melted','drawn','rope','fire','key','rejected','photo','escaped']);
+  assert.deepEqual(events,['unmuted','melted','drawn','rope','released','fire','key','rejected','photo','escaped']);
+  assert.ok(r.rescueSeconds!==null&&r.rescueSeconds>0,'rescue time measured from breaking the silence');
   physics.reset();room.reset();assert.equal(r.stage,'silence');assert.equal(r.glass.visible,true);assert.equal(r.rope.visible,true);assert.equal(r.fire.object.visible,false);assert.equal(room.reward.object.visible,false);
   assert.ok(new THREE.Vector3(0,0,-1).applyQuaternion(r.camera.object.quaternion).z>.99,'reset keeps camera facing player');
  } finally {room.dispose();physics.dispose();}

@@ -8,7 +8,8 @@ import { createMockSource, type MockSource } from "../mvp/lib/mockSource";
 import { debug, useDebug, type SourceMode } from "../mvp/lib/debugState";
 import { installQuestEmulatorIfRequested } from "../mvp/lib/xrEmulation";
 import type { VideoHealth } from "../mvp/lib/videoTextureHealth";
-import type { RescueBeat } from './lib/rescueScript';
+import type { RescueBeat, RescueStage } from './lib/rescueScript';
+import barks from './lib/rescueBarks.json';
 import { BOARD_H, PUZZLE_RESOLUTION, WRONG_HINT_IDLE_MS } from "./puzzleConfig";
 import { mockLabel, usePuzzleController } from "./lib/usePuzzleController";
 import { puzzleStore, usePuzzleState } from "./lib/puzzleState";
@@ -43,6 +44,32 @@ const PLACEHOLDER: Record<string, string[]> = {
   error: ["The painting has faded", "see panel — Reset to retry"],
 };
 
+type Bark = { id: string; kind: string; stage?: string; text: string };
+const BARKS: Bark[] = barks;
+const STAGES = ['silence','unmuted','melted','drawn','rope','fire','key','rejected','photo','escaped'] as const satisfies readonly RescueStage[];
+/** Spoken hints after this long in one stage without progress (ms). */
+const HINT_DELAYS_MS = [25_000, 55_000];
+/** The silent opening has no voice: a plaque nudge instead. */
+const SILENCE_NUDGE_MS = 20_000;
+/** Keep the subtitle up briefly after a line ends. */
+const SUBTITLE_HOLD_MS = 2500;
+/** Minimum gap between "that's not a sword" quips. */
+const QUIP_GAP_MS = 8000;
+const QUIPS = ['quip-baguette', 'quip-butter', 'quip-witch'];
+/** What the plaque under the painting says when nobody is talking. */
+const OBJECTIVE: Record<RescueStage, string> = {
+  silence: 'She is trying to speak… break the silence.',
+  unmuted: 'Draw your sword, hero!',
+  melted: 'There must be another way to draw a sword…',
+  drawn: 'Free the key from the box.',
+  rope: 'Something needs to catch fire…',
+  fire: 'The box is falling!',
+  key: 'Get the key into the picture.',
+  rejected: 'Get the key into the picture… somehow.',
+  photo: 'Bring the photograph to the painting.',
+  escaped: 'The princess is free!',
+};
+
 function PuzzleInner({ hasKey }: { hasKey: boolean }) {
   const [mode, setMode] = useState<SourceMode>("mock");
   const [resolution, setResolution] = useState<string | null>(PUZZLE_RESOLUTION);
@@ -65,35 +92,84 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     roomApi.current?.clearBoard();
     puzzleStore.set({ strokeCount: 0, lastResult: null, wrongFlashUntil: 0, swordFlashUntil: 0 });
   }, []);
+  // ── Princess voice: story beats (queued) and barks (hints / quips) ─────
+  // Barks only play when she is silent, so a hint never stacks on a story
+  // line. The subtitle clears shortly after the last clip ends, letting the
+  // plaque fall back to the current objective.
   const [subtitle,setSubtitle]=useState('');
+  const [stage,setStage]=useState<RescueStage>('silence');
+  const stageRef=useRef<RescueStage>('silence');
+  const [ending,setEnding]=useState<{seconds:number}|null>(null);
+  const [idleNonce,setIdleNonce]=useState(0);
   const voices=useRef(new Set<HTMLAudioElement>());
   const voiceQueue=useRef<Promise<void>>(Promise.resolve());
   const voiceRun=useRef(0);
-  const resetRoom = useCallback(() => {
-    voiceRun.current++; voiceQueue.current=Promise.resolve();
+  const voiceBusy=useRef(0);
+  const subtitleTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const unmutedAt=useRef<number|null>(null);
+  const lastQuipAt=useRef(0);
+  const quipIndex=useRef(0);
+  const earlyDrawSaid=useRef(false);
+  const smallQuipSaid=useRef(false);
+  const stopVoices=useCallback(()=>{
+    voiceRun.current++; voiceQueue.current=Promise.resolve(); voiceBusy.current=0;
+    if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
     setSubtitle(''); for(const a of voices.current){a.pause();a.onended?.(new Event('ended'));} voices.current.clear();
+  },[]);
+  const speak=useCallback((id:string,text:string)=>{
+    const run=voiceRun.current;
+    voiceBusy.current++;
+    const spoken=voiceQueue.current.then(()=>new Promise<void>(resolve=>{
+      if(run!==voiceRun.current){resolve();return;}
+      if(subtitleTimer.current)clearTimeout(subtitleTimer.current);
+      setSubtitle(text);
+      const a=new Audio('/audio/princess/'+id+'.wav');voices.current.add(a);
+      const finish=()=>{
+        voices.current.delete(a);a.onended=null;a.onerror=null;
+        if(run===voiceRun.current){
+          voiceBusy.current=Math.max(0,voiceBusy.current-1);
+          if(voiceBusy.current===0)subtitleTimer.current=setTimeout(()=>{if(voiceBusy.current===0)setSubtitle('');},SUBTITLE_HOLD_MS);
+        }
+        resolve();
+      };
+      a.onended=finish;
+      a.onerror=()=>{debug.push('error','Princess audio failed: '+id);finish();};
+      void a.play().catch(e=>{debug.push('error','Princess audio: '+e.message);finish();});
+    }));
+    voiceQueue.current=spoken;
+    return spoken;
+  },[]);
+  /** A hint or quip: dropped (false) while she is already talking. */
+  const bark=useCallback((id:string)=>{
+    const line=BARKS.find(b=>b.id===id);
+    if(!line||voiceBusy.current>0)return false;
+    debug.push('info',`[puzzle] princess says "${id}"`);
+    void speak(line.id,line.text);
+    return true;
+  },[speak]);
+  const resetRoom = useCallback(() => {
+    stopVoices();
+    setStage('silence'); stageRef.current='silence'; setEnding(null);
+    unmutedAt.current=null; earlyDrawSaid.current=false; smallQuipSaid.current=false; quipIndex.current=0; lastQuipAt.current=0;
     roomApi.current?.resetRoom();
     puzzleStore.set({ strokeCount: 0, lastResult: null, wrongFlashUntil: 0, swordFlashUntil: 0 });
-  }, []);
+  }, [stopVoices]);
   const puzzle = usePuzzleController({ orbis, mode, mock: mockRef, resolution, resetRoom });
   const onBeat=useCallback((beat:RescueBeat)=>{
-    puzzle.steerScript(beat);
-    if(beat.text){
+    const landed=puzzle.steerScript(beat);
+    if((STAGES as readonly string[]).includes(beat.id)){const s=beat.id as RescueStage;stageRef.current=s;setStage(s);}
+    if(beat.id==='unmuted')unmutedAt.current=Date.now();
+    const spoken=beat.text?speak(beat.id,beat.text):Promise.resolve();
+    // The room waits for both the line and the picture (capped) before
+    // the next physical effect, e.g. the fireball leaving the canvas.
+    const done=Promise.all([spoken,landed]).then(()=>undefined);
+    if(beat.id==='escaped'){
       const run=voiceRun.current;
-      const spoken=voiceQueue.current.then(()=>new Promise<void>(resolve=>{
-        if(run!==voiceRun.current){resolve();return;}
-        setSubtitle(beat.text);
-        const a=new Audio('/audio/princess/'+beat.id+'.wav');voices.current.add(a);
-        const finish=()=>{voices.current.delete(a);a.onended=null;a.onerror=null;resolve();};
-        a.onended=finish;
-        a.onerror=()=>{debug.push('error','Princess audio failed: '+beat.id);finish();};
-        void a.play().catch(e=>{debug.push('error','Princess audio: '+e.message);finish();});
-      }));
-      voiceQueue.current=spoken;
-      return spoken;
+      const seconds=unmutedAt.current?(Date.now()-unmutedAt.current)/1000:0;
+      void done.then(()=>{if(run===voiceRun.current)setEnding({seconds});});
     }
-    if(beat.id==='escaped')setSubtitle('The princess is free!');
-  },[puzzle]);
+    return done;
+  },[puzzle,speak]);
   useEffect(()=>()=>{voiceRun.current++;for(const a of voices.current){a.pause();a.onended?.(new Event('ended'));}voices.current.clear();},[]);
   const ps = usePuzzleState();
   const d = useDebug();
@@ -274,6 +350,24 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
     hintTimer.current = setTimeout(() => puzzleStore.set({ hint: null }), ms);
   }, []);
 
+  // Idle hints: gentle first, blunt second, timed from entering the stage
+  // (or from the player's last drawing attempt). A hint that finds her
+  // talking retries a few seconds later instead of interrupting.
+  useEffect(() => {
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    if (stage === "silence") {
+      timers.push(setTimeout(() => flashHint("That red seal under the painting looks fragile… try the hammer.", 9000), SILENCE_NUDGE_MS));
+    }
+    BARKS.filter((b) => b.kind === "hint" && b.stage === stage).forEach((h, i) => {
+      const attempt = () => {
+        if (stageRef.current !== stage) return;
+        if (!bark(h.id)) timers.push(setTimeout(attempt, 4000));
+      };
+      timers.push(setTimeout(attempt, HINT_DELAYS_MS[i] ?? HINT_DELAYS_MS[HINT_DELAYS_MS.length - 1] + 30_000 * i));
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [stage, idleNonce, bark, flashHint]);
+
   // ── Puzzle components (Scene Editor "+ Puzzle") ──────────────────────
   // attempt(): one puzzle's trigger happened. Locked → local hint only.
   const attempt = useCallback(
@@ -337,6 +431,11 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       const r = evaluate(strokes);
       debug.push("info", `[puzzle] stroke ${strokes.length} via ${source} → ${r.isSword ? `SWORD (score ${r.score.toFixed(2)})` : r.reason}`);
       if (wrongTimer.current) clearTimeout(wrongTimer.current);
+      setIdleNonce((n) => n + 1);
+      if (r.isSword && stageRef.current === "unmuted" && !earlyDrawSaid.current) {
+        // Drawn before trying the rack sword: she points them there first.
+        if (bark("early-draw")) earlyDrawSaid.current = true;
+      }
       if (r.isSword) {
         if (!puzzleStore.get().swordFlashUntil || Date.now() > puzzleStore.get().swordFlashUntil) roomAudio.play("sword-right");
         puzzleStore.set({ swordFlashUntil: Date.now() + 1500, wrongFlashUntil: 0 });
@@ -350,10 +449,21 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
         if (now !== count || puzzleStore.get().lastResult?.isSword) return;
         puzzleStore.set({ wrongFlashUntil: Date.now() + 1100, wrongHints: puzzleStore.get().wrongHints + 1 });
         roomAudio.play("sword-wrong");
-        debug.push("info", `[puzzle] not a sword (${puzzleStore.get().lastResult?.reason ?? "?"}) — local hint only, no command sent`);
+        const reason = puzzleStore.get().lastResult?.reason ?? "?";
+        debug.push("info", `[puzzle] not a sword (${reason}) — local hint only, no command sent`);
+        // She reacts to the doodle (only while a drawn sword is what she needs).
+        if (stageRef.current === "melted" && Date.now() - lastQuipAt.current > QUIP_GAP_MS) {
+          const small = /short|longer|nothing/.test(reason) && !smallQuipSaid.current;
+          const id = small ? "quip-small" : QUIPS[quipIndex.current % QUIPS.length];
+          if (bark(id)) {
+            lastQuipAt.current = Date.now();
+            if (small) smallQuipSaid.current = true;
+            else quipIndex.current++;
+          }
+        }
       }, WRONG_HINT_IDLE_MS);
     },
-    [evaluate, trigger],
+    [evaluate, trigger, bark],
   );
   useEffect(() => () => {
     if (wrongTimer.current) clearTimeout(wrongTimer.current);
@@ -409,11 +519,9 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
       ? ps.nextReconnectAt
         ? "The painting flickers… reconnecting"
         : "An empty painting hangs on the wall."
-      : allSolved(ps.setup, ps.solved)
-        ? "The princess laughs with joy!"
-        : ps.phase === "urging"
-          ? "Break the silence with the hammer."
-          : "Something stirs inside the painting…");
+      : ps.phase === "urging"
+        ? OBJECTIVE[stage]
+        : "Something stirs inside the painting…");
 
   const activeVideo = mode === "live" ? liveVideo : mockVideo;
   const vh = d.videoHealth;
@@ -432,6 +540,8 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
         {xrInitDone && (
           <PuzzleScene
             onBeat={onBeat}
+            onBark={bark}
+            morphing={ps.morphing}
             showVideo={ps.liveReady}
             video={activeVideo}
             placeholderLines={PLACEHOLDER[ps.phase] ?? [ps.phase, ""]}
@@ -466,6 +576,21 @@ function PuzzleInner({ hasKey }: { hasKey: boolean }) {
           />
         )}
         {subtitle && <div className="pointer-events-none absolute bottom-4 left-4 right-4 rounded bg-black/80 p-3 text-sm text-amber-50">{subtitle}</div>}
+        {ending && (
+          <div className="absolute left-1/2 top-12 w-[min(92%,440px)] -translate-x-1/2 rounded-lg border-2 border-amber-300/80 bg-gradient-to-b from-[#2a2140]/95 to-[#151022]/95 p-5 text-center shadow-2xl">
+            <div className="font-serif text-2xl font-bold text-amber-200">The Princess Is Free!</div>
+            <div className="mt-1 font-serif italic text-amber-50">
+              Rescued in {Math.floor(Math.round(ending.seconds) / 60)}:{String(Math.round(ending.seconds) % 60).padStart(2, "0")}
+            </div>
+            <div className="mt-2 text-sm text-violet-200">Thank you for playing HERO</div>
+            <button
+              className="mt-4 rounded border border-amber-300 px-4 py-1.5 text-sm text-amber-100 hover:bg-amber-300/20"
+              onClick={() => puzzle.resetPuzzle("Play again (end card)")}
+            >
+              Play again
+            </button>
+          </div>
+        )}
         <div className="pointer-events-none absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-[11px] text-zinc-300">
           /puzzle · desktop: drag on the easel canvas to draw · click the mute symbol to strike · click tools to carry/drop · Space to shoot camera · WASD move · arrows look · VR: pinch/grip to grab, left stick move, right stick smooth turn
         </div>

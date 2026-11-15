@@ -33,6 +33,12 @@ export const SOUND_IDS = [
   "sword-right",
   "sword-wrong",
   "puzzle-solved", // default "solved" sound of a puzzle component
+  "portal", // something passes through the painting surface
+  "portal-reject", // the painting bounces an object back
+  "shutter", // camera photo
+  "fire-catch",
+  "rope-snap",
+  "fanfare", // rescue complete
 ] as const;
 export type SoundId = (typeof SOUND_IDS)[number];
 type Channel = "background" | "objects" | "sfx";
@@ -50,6 +56,12 @@ const CHANNEL_OF: Record<SoundId, Channel> = {
   "sword-right": "sfx",
   "sword-wrong": "sfx",
   "puzzle-solved": "sfx",
+  portal: "sfx",
+  "portal-reject": "sfx",
+  shutter: "sfx",
+  "fire-catch": "sfx",
+  "rope-snap": "sfx",
+  fanfare: "sfx",
 };
 
 type Loop = { stop: () => void };
@@ -355,6 +367,34 @@ function synthOneShot(c: AudioContext, id: SoundId, out: AudioNode, noise: Audio
       // Soft magical shimmer: rising arpeggio + airy sparkle.
       [523.3, 659.3, 784, 1046.5, 1318.5].forEach((f, i) => tone(c, out, f, t + i * 0.07, 1.2, 0.16));
       for (let i = 0; i < 8; i++) noiseBurst(c, out, noise, t + 0.1 + i * 0.06, 0.05, 0.05, 6000 + i * 400, 4);
+      break;
+    case "portal":
+      // Watery shimmer sweeping upward through the canvas.
+      [392, 523.3, 784, 1046.5, 1568].forEach((f, i) => tone(c, out, f, t + i * 0.05, 0.9, 0.12));
+      noiseBurst(c, out, noise, t, 0.5, 0.18, 1800, 0.6);
+      break;
+    case "portal-reject":
+      tone(c, out, 220, t, 0.3, 0.3, "triangle");
+      tone(c, out, 165, t + 0.08, 0.35, 0.25, "triangle");
+      noiseBurst(c, out, noise, t, 0.12, 0.3, 700, 1.5);
+      break;
+    case "shutter":
+      noiseBurst(c, out, noise, t, 0.04, 0.7, 4200, 2);
+      noiseBurst(c, out, noise, t + 0.07, 0.05, 0.5, 2600, 2);
+      tone(c, out, 2400, t + 0.02, 0.25, 0.08);
+      break;
+    case "fire-catch":
+      noiseBurst(c, out, noise, t, 0.35, 0.45, 600, 0.7);
+      tone(c, out, 660, t, 0.3, 0.12, "triangle");
+      break;
+    case "rope-snap":
+      noiseBurst(c, out, noise, t, 0.05, 0.8, 1500, 3);
+      noiseBurst(c, out, noise, t + 0.03, 0.6, 0.3, 500, 0.6);
+      break;
+    case "fanfare":
+      [523.3, 659.3, 784].forEach((f, i) => tone(c, out, f, t + i * 0.13, 0.25, 0.2, "triangle"));
+      [1046.5, 1318.5, 1568].forEach((f) => tone(c, out, f, t + 0.42, 1.4, 0.13, "triangle"));
+      for (let i = 0; i < 10; i++) noiseBurst(c, out, noise, t + 0.45 + i * 0.07, 0.05, 0.05, 6500 + i * 300, 4);
       break;
     case "sword-wrong":
       tone(c, out, 392, t, 0.25, 0.22, "triangle");

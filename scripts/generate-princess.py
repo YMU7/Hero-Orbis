@@ -10,7 +10,11 @@ from qwen_tts import Qwen3TTSModel
 profile=json.loads((QWEN/'princess.json').read_text())
 torch.set_num_threads(8)
 model=Qwen3TTSModel.from_pretrained(str(QWEN/'models/VoiceDesign'),device_map='cpu',dtype=torch.float32,attn_implementation='sdpa',local_files_only=True)
-for beat in json.loads((ROOT/'app/puzzle/lib/rescueDialogue.json').read_text()):
+# Story beats first, then hints and quips (same voice, same seed).
+lines=[]
+for name in ('rescueDialogue.json','rescueBarks.json'):
+ lines+=json.loads((ROOT/'app/puzzle/lib'/name).read_text(encoding='utf-8'))
+for beat in lines:
  if not beat['text']: continue
  output=ROOT/'public/audio/princess'/f"{beat['id']}.wav"
  if output.exists(): continue
@@ -20,4 +24,3 @@ for beat in json.loads((ROOT/'app/puzzle/lib/rescueDialogue.json').read_text()):
   wavs,sr=model.generate_voice_design(text=beat['text'],language='English',instruct=profile['description'],max_new_tokens=4096)
  sf.write(output,wavs[0],sr,subtype='PCM_16')
  print(f'Saved {output.name}: {sf.info(output).duration:.1f}s',flush=True)
-

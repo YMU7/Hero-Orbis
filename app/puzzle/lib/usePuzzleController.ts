@@ -48,6 +48,12 @@ export type SolveOutcome = { ok: true } | { ok: false; reason: string; local?: b
 const log = (msg: string, kind: "info" | "cmd" | "error" = "info") => debug.push(kind, `[puzzle] ${msg}`);
 const isTimeout = (e: string | null) => !!e && /REQUEST_TIMEOUT|timed out/i.test(e);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Chunks after the set_prompt ack before a cue counts as on screen. */
+const MORPH_CHUNKS = 2;
+/** Hard cap on any wait for the picture (the room never stalls on Orbis). */
+const MORPH_CAP_MS = 5000;
+/** Mock mode has no model: a short shimmer shows the effect. */
+const MOCK_MORPH_MS = 1600;
 
 /** The painting's opening (falls back to the built-in text before the layout loads). */
 export function openingOf(s: PuzzleStateData): PuzzleStateData["current"] {
@@ -201,8 +207,11 @@ export function usePuzzleController(opts: {
       const s = puzzleStore.get();
       const token = s.run + 1;
       resetRoomRef.current();
+      morphSeq.current++;
+      for (const w of waiters.current.splice(0)) w.resolve();
       puzzleStore.set({
         run: token,
+        morphing: false,
         liveReady: false,
         solved: [],
         solvedAt: null,
@@ -307,8 +316,25 @@ export function usePuzzleController(opts: {
     if (modeRef.current === "mock") updateMock();
   }, [updateMock]);
 
+  // ── Morph tracking (script cues) ────────────────────────────────────────
+  // Orbis applies a prompt at the next chunk boundary (~1.8 s) after the
+  // set_prompt ack. A cue counts as "landed" once MORPH_CHUNKS chunks have
+  // completed after its ack: by then the new prompt's frames are on screen.
+  // Every wait is capped, so nothing in the room can hang on the model.
+  const chunks = useRef(0);
+  const waiters = useRef<Array<{ at: number; resolve: () => void }>>([]);
+  const morphSeq = useRef(0);
+  const settleWaiters = () => {
+    const due = waiters.current.filter((w) => w.at <= chunks.current);
+    waiters.current = waiters.current.filter((w) => w.at > chunks.current);
+    for (const w of due) w.resolve();
+  };
+  const afterChunks = (n: number) => new Promise<void>((resolve) => waiters.current.push({ at: chunks.current + n, resolve }));
+
   // ── First frames of THIS run → show live video ──────────────────────────
   useViskoOrbisStableChunkComplete((m) => {
+    chunks.current++;
+    settleWaiters();
     const s = puzzleStore.get();
     if (s.phase !== "priming" || (m.frames_emitted ?? 0) <= 0) return;
     const now = Date.now();
@@ -359,15 +385,30 @@ export function usePuzzleController(opts: {
     resetPuzzle(`mode ${mode}`);
   }, [mode, resetPuzzle]);
 
-  const steerScript = useCallback((beat: RescueBeat) => {
-    if(!beat.cue)return;
+  /** Send a script cue at the moment of the action. Resolves when the picture
+   *  has (probably) caught up — never later than MORPH_CAP_MS — so room
+   *  effects can wait for it. The painting shimmers until then. */
+  const steerScript = useCallback((beat: RescueBeat): Promise<void> => {
+    if(!beat.cue)return Promise.resolve();
     const instruction=beat.cue;
     puzzleStore.set({current:{label:beat.id,instruction,audioPrompt:'Quiet castle room ambience, no speech or music.'}});
-    if(modeRef.current==='mock'){updateMock();return;}
-    if(statusRef.current!=='ready')return;
-    const token=puzzleStore.get().run;
-    // Dispatch at the action, with no dialogue timers or chunk waits.
-    void cmd(token, 'set_prompt(script:'+beat.id+')',()=>clientRef.current.setPrompt({prompt:promptOf(instruction)}),true).then(r=>{if(!r.ok&&isCurrent(token))puzzleStore.set({lastError:'Script cue failed: '+beat.id});});
+    const seq=++morphSeq.current;
+    const settle=()=>{if(morphSeq.current===seq)puzzleStore.set({morphing:false});};
+    const capped=(p:Promise<unknown>,ms:number)=>Promise.race([p.then(()=>undefined),sleep(ms)]).then(settle);
+    if(modeRef.current==='mock'){updateMock();puzzleStore.set({morphing:true});return capped(sleep(MOCK_MORPH_MS),MOCK_MORPH_MS);}
+    const s=puzzleStore.get();
+    if(statusRef.current!=='ready'||!s.liveReady){settle();return Promise.resolve();}
+    puzzleStore.set({morphing:true});
+    const token=s.run;
+    // Dispatch at the action, with no dialogue timers; only the shimmer waits.
+    const landed=cmd(token, 'set_prompt(script:'+beat.id+')',()=>clientRef.current.setPrompt({prompt:promptOf(instruction)}),true).then(r=>{
+      if(!r.ok){if(isCurrent(token))puzzleStore.set({lastError:'Script cue failed: '+beat.id});return;}
+      const chunk=debug.get().currentChunk;
+      puzzleStore.set({ackChunk:chunk});
+      log(`cue "${beat.id}" acknowledged at chunk ${chunk ?? "?"}`,'cmd');
+      return afterChunks(MORPH_CHUNKS);
+    });
+    return capped(landed,MORPH_CAP_MS);
   },[cmd,updateMock]);
   return { steerScript, resetPuzzle, solve, onSound, onSetup, applyStyleLive };
 }

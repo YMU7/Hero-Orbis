@@ -295,6 +295,13 @@ export const paintingGrade = {
   gamma: { value: 1 },
 };
 
+/** Painting "magic" effect while Orbis catches up with a new cue (#9):
+ *  0 = still, 1 = full shimmer. Eased every frame by the scene. */
+export const paintingFx = {
+  shimmer: { value: 0 },
+  time: { value: 0 },
+};
+
 export function applyPaintGrade(g: { saturation: number; brightness: number; contrast: number; warmth: number; tint: number; gamma: number }) {
   paintingGrade.saturation.value = g.saturation;
   paintingGrade.brightness.value = g.brightness;
@@ -322,6 +329,8 @@ export function buildPainting() {
     shader.uniforms.uPaintWarmth = paintingGrade.warmth;
     shader.uniforms.uPaintTint = paintingGrade.tint;
     shader.uniforms.uPaintGamma = paintingGrade.gamma;
+    shader.uniforms.uShimmer = paintingFx.shimmer;
+    shader.uniforms.uFxTime = paintingFx.time;
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "void main() {",
@@ -332,13 +341,29 @@ export function buildPainting() {
           "uniform float uPaintWarmth;",
           "uniform float uPaintTint;",
           "uniform float uPaintGamma;",
+          "uniform float uShimmer;",
+          "uniform float uFxTime;",
+          "float fxHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }",
           "void main() {",
         ].join("\n"),
       )
       .replace(
         "#include <map_fragment>",
         [
-          "#include <map_fragment>",
+          "#ifdef USE_MAP",
+          // Liquid ripple on the canvas: the picture wobbles like paint
+          // that is still wet while the new scene arrives.
+          "  vec2 fxUv = vMapUv;",
+          "  vec2 fxC = fxUv - 0.5;",
+          "  float fxR = length(fxC * vec2(1.78, 1.0));",
+          "  float fxWave = sin(fxR * 38.0 - uFxTime * 7.0) * 0.5 + 0.5;",
+          "  fxUv += uShimmer * (0.0045 * vec2(sin(fxUv.y * 31.0 + uFxTime * 4.3), cos(fxUv.x * 27.0 + uFxTime * 3.7)) + normalize(fxC + 1e-4) * 0.004 * fxWave);",
+          "  vec4 sampledDiffuseColor = texture2D( map, fxUv );",
+          "  #ifdef DECODE_VIDEO_TEXTURE",
+          "  sampledDiffuseColor = sRGBTransferEOTF( sampledDiffuseColor );",
+          "  #endif",
+          "  diffuseColor *= sampledDiffuseColor;",
+          "#endif",
           "  vec3 pc = max(diffuseColor.rgb, vec3(0.0));",
           "  pc = pow(pc, vec3(1.0 / uPaintGamma));",
           "  pc *= uPaintBrightness;",
@@ -347,6 +372,16 @@ export function buildPainting() {
           "  pc.rb += vec2(0.02 * uPaintTint);",
           "  float paintLuma = dot(pc, vec3(0.2126, 0.7152, 0.0722));",
           "  diffuseColor.rgb = max(mix(vec3(paintLuma), pc, uPaintSaturation), vec3(0.0));",
+          // Golden glints drifting upward + a soft glow sweeping the edges.
+          "  vec2 fxCell = floor(vec2(vMapUv.x * 64.0, vMapUv.y * 36.0 - uFxTime * 3.0));",
+          "  float fxSpark = step(0.985, fxHash(fxCell)) * (0.5 + 0.5 * sin(uFxTime * 9.0 + fxHash(fxCell + 3.1) * 6.28));",
+          "  float fxEdge = smoothstep(0.40, 0.5, max(abs(vMapUv.x - 0.5), abs(vMapUv.y - 0.5)));",
+          "  vec3 fxGold = vec3(1.0, 0.82, 0.45);",
+          // Ripple and warm tint are multiplicative (dark frames stay dark);
+          // only the edge glow and the glints add light.
+          "  vec3 fxCol = diffuseColor.rgb * (0.94 + 0.16 * fxWave) * mix(vec3(1.0), fxGold * 1.2, 0.25);",
+          "  fxCol += fxGold * (0.08 * fxEdge * (0.6 + 0.4 * sin(uFxTime * 3.0)) + 0.6 * fxSpark);",
+          "  diffuseColor.rgb = mix(diffuseColor.rgb, fxCol, uShimmer);",
         ].join("\n"),
       );
   };

@@ -37,6 +37,9 @@ export type PuzzleStateData = {
   firstFrameAt: number | null;
   /** Chunk at which the last puzzle instruction was acknowledged. */
   ackChunk: number | null;
+  /** A script cue was sent and the picture has not caught up yet (drives the
+   *  painting shimmer that hides the ~2 s Orbis delay). */
+  morphing: boolean;
   lastError: string | null;
   /** Number of automatic restarts after generation_complete in this run. */
   continuations: number;
@@ -80,6 +83,7 @@ export const usePuzzleState = create<PuzzleState>((set) => ({
   runStartedAt: null,
   firstFrameAt: null,
   ackChunk: null,
+  morphing: false,
   lastError: null,
   continuations: 0,
   soundOn: false,

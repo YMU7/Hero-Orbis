@@ -46,6 +46,8 @@ export class UnityRoom {
   private ambience: AudioBufferSourceNode | null = null;
   private readonly previousHead = new THREE.Vector3();
   private hasHead = false;
+  private sealTime = 0;
+  private readonly sealMat = mat(0xdf333e);
 
   constructor(readonly physics: ToolPhysics, painting: THREE.Group, private board: DrawingBoard, private onSound: (on: boolean) => void, onBeat: (beat: RescueBeat) => void | Promise<void> = () => {}) {
     const hammer = new THREE.Group(); hammer.name = "hammer";
@@ -79,9 +81,9 @@ export class UnityRoom {
     this.mute.position.copy(painting.localToWorld(new THREE.Vector3(0, -0.82, 0.12)));
     this.mute.quaternion.copy(painting.getWorldQuaternion(new THREE.Quaternion()));
     this.group.add(this.mute);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 8, 40), mat(0xdf333e));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.022, 8, 40), this.sealMat);
     this.red.add(ring);
-    const slash = box(this.red, [0.38, 0.025, 0.03], [0, 0, 0.025], mat(0xdf333e));
+    const slash = box(this.red, [0.38, 0.025, 0.03], [0, 0, 0.025], this.sealMat);
     slash.rotation.z = -Math.PI / 4;
     const mic = box(this.active, [0.055, 0.11, 0.035], [0, 0.025, 0], mat(0x58dda0));
     // Rounded microphone mesh.
@@ -95,7 +97,7 @@ export class UnityRoom {
   }
   tryGrab(g: Grabber, ray: THREE.Ray | null) {
     if (this.rescue.camera.holder && g !== this.rescue.camera.holder && g.point.distanceTo(this.rescue.camera.object.position)<.25) return this.rescue.shoot();
-    return [this.hammer, this.wallSword, this.reward, this.rescue.camera, this.rescue.fire, this.rescue.key, this.rescue.photo].filter(t => this.rescue.canGrab(t)).sort((a, b) => a.distanceToGrab(g.point) - b.distanceToGrab(g.point)).some((t) => t.tryGrab(g, ray));
+    return [this.hammer, this.wallSword, this.reward, this.rescue.camera, this.rescue.fire, this.rescue.key, this.rescue.photo].filter(t => this.rescue.canGrab(t)).sort((a, b) => a.distanceToGrab(g.point) - b.distanceToGrab(g.point)).some((t) => t.tryGrab(g, ray)) || this.rescue.poke(g.point);
   }
   /** Desktop follows the same hammer contact path; never accepts another tool. */
   desktopStrike() {
@@ -106,7 +108,8 @@ export class UnityRoom {
   }
   private activate() {
     if (this.activated) return;
-    this.activated = true; this.red.visible = false; this.active.visible = true;
+    this.activated = true; this.red.visible = false; this.active.visible = true; this.red.scale.setScalar(1);
+    this.rescue.hooks.haptic(this.hammer.holder, 1, 120);
     this.onSound(true); this.sound(); this.rescue.unmute();
     for (let i = 0; i < 28; i++) {
       const a = i * Math.PI * 2 / 28;
@@ -145,6 +148,14 @@ export class UnityRoom {
     const contact = this.hasHead ? new THREE.Line3(this.previousHead, head).closestPointToPoint(target, true, new THREE.Vector3()) : head;
     if (contact.distanceTo(target) < 0.23) this.activate();
     this.previousHead.copy(head); this.hasHead = true;
+    // The seal breathes until it is broken, so it reads as the first thing to hit.
+    if (!this.activated) {
+      this.sealTime += dt;
+      const beat = 0.5 + 0.5 * Math.sin(this.sealTime * 4);
+      this.red.scale.setScalar(1 + 0.07 * beat);
+      this.sealMat.emissive.setHex(0xff2030);
+      this.sealMat.emissiveIntensity = 0.15 + 0.6 * beat;
+    }
     for (let i = this.shards.length - 1; i >= 0; i--) {
       const s = this.shards[i]; s.life -= dt; s.v.y -= 9.81 * dt;
       s.mesh.position.addScaledVector(s.v, dt); s.mesh.rotation.x += dt * 3; s.mesh.rotation.z += dt * 5;

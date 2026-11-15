@@ -1,52 +1,57 @@
 [
   {
     "id": "silence",
-    "cue": "The princess is alone in a room with a locked door. She seems to be trying to talk.",
+    "cue": "She looks at the viewer with a sad, hopeful face and opens and closes her small mouth as if trying to speak without a sound, then gently taps her lips with one finger. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": ""
   },
   {
     "id": "unmuted",
-    "cue": "The princess jumps for joy.",
+    "cue": "Her face lights up with a big bright smile; she gives cheerful little hops and claps her small hands with joy. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "Thank you hero! When I found out I would be voiceless until someone broke the silence, I didn't think that this is what they meant. I was trapped here by an evil witch when I criticized her artwork. To be fair it was really awful. Anyways, time to rescue me. Draw your sword!"
   },
   {
     "id": "melted",
-    "cue": "The princess frowns.",
+    "cue": "She tilts her head with a small puzzled pout and rests one finger on her chin, looking thoughtful. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "Hmm, I know the hero is supposed to draw a sword to save me. But that doesn't seem to be working. What else could you try?"
   },
   {
     "id": "drawn",
-    "cue": "The princess laughs.",
+    "cue": "She giggles happily with one small hand over her mouth, her shoulders bouncing, amused and delighted. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "Well that wasn't what I had in mind but it worked! Now we need to get the key out of that box. You can probably smash it on the floor."
   },
   {
     "id": "rope",
-    "cue": "The princess looks thoughtful, considering how to free the key.",
+    "cue": "She cups her small hands together in front of her chest, and a round glowing orange fireball floats between her palms, casting warm flickering firelight on her face and gown; she gazes at it with excited wonder. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "Oh yeah I forgot, that is special sword-proof rope. Can't cut it. I wonder if this will work... we need something to catch fire!"
   },
   {
+    "id": "released",
+    "cue": "Her small hands are open and empty in front of her; she points eagerly toward the viewer and bounces on her toes with excitement. Her face stays soft, smooth and youthful. The camera does not move.",
+    "text": ""
+  },
+  {
     "id": "fire",
-    "cue": "",
+    "cue": "She gasps with delight, her big eyes wide and sparkling, both small hands pressed to her rosy cheeks. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "Wow that actually worked. I like this game."
   },
   {
     "id": "key",
-    "cue": "The princess claps with delight.",
+    "cue": "She claps with delight and beams, then leans toward the viewer with both small hands held out, waiting expectantly. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "Okay, now get that key into the picture."
   },
   {
     "id": "rejected",
-    "cue": "The princess frowns.",
+    "cue": "She gives a small sympathetic wince, then a brave encouraging nod, one small hand still held out toward the viewer. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "I was worried about that. But we need that key in the picture."
   },
   {
     "id": "photo",
-    "cue": "",
+    "cue": "She holds out both open hands toward the viewer, her big eyes wide with hopeful excitement, smiling. Her face stays soft, smooth and youthful. The camera does not move.",
     "text": "Excellent."
   },
   {
     "id": "escaped",
-    "cue": "The princess bends down and picks up a key, uses it to open the locked door, and walks outside the castle.",
-    "text": ""
+    "cue": "She holds up a small shining golden key in one hand and beams with joy, waves goodbye to the viewer, then turns and skips happily away along the garden path toward the distant castle. The camera does not move.",
+    "text": "I'm free! Thank you, hero. And just between us... your sword drawing was even worse than the witch's art."
   }
 ]
